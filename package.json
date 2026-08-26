@@ -1,0 +1,13 @@
+{
+  "name": "pm-studio",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "dev": "pnpm --filter @pm-studio/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "worker": "pnpm --filter @pm-studio/worker dev",
+    "admin:create": "pnpm --filter @pm-studio/web admin:create"
+  }
+}

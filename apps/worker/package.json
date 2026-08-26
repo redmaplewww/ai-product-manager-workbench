@@ -1,0 +1,9 @@
+{
+  "name": "@pm-studio/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "tsx src/index.ts", "build": "tsc --noEmit", "typecheck": "tsc --noEmit", "test": "vitest run --passWithNoTests" },
+  "dependencies": { "@pm-studio/core": "workspace:*" },
+  "devDependencies": { "@types/node": "^22.19.7", "tsx": "^4.21.0", "typescript": "^5.9.3", "vitest": "^4.0.18" }
+}

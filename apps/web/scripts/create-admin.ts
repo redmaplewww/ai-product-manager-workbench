@@ -1,0 +1,20 @@
+import { hash } from "@node-rs/argon2";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import path from "node:path";
+import { createInterface } from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
+import { studioStateSchema } from "@pm-studio/core";
+
+const rl = createInterface({ input, output });
+const username = await rl.question("Admin username: ");
+const name = await rl.question("Display name: ");
+const password = await rl.question("Temporary password (min 12 chars): ");
+rl.close();
+if (password.length < 12) throw new Error("Password must contain at least 12 characters");
+const file = path.resolve(process.cwd(), "../../data/studio.json");
+const state = studioStateSchema.parse(JSON.parse(await readFile(file, "utf8")));
+if (state.users.some((user) => user.username === username)) throw new Error("Username already exists");
+state.users.push({ id: `usr_${crypto.randomUUID().slice(0,8)}`, username, name, role: "admin", passwordHash: await hash(password, { algorithm: 2 }), mustChangePassword: true, createdAt: new Date().toISOString() });
+await mkdir(path.dirname(file), { recursive: true });
+await writeFile(file, JSON.stringify(state, null, 2), "utf8");
+console.log(`Created admin ${username}. Password change is required on first production login.`);
