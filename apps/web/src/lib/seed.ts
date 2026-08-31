@@ -1,5 +1,6 @@
 import type { StudioState, ProductBaseline } from "@pm-studio/core";
 import { hash } from "@node-rs/argon2";
+import "./env";
 
 const createdAt = "2026-08-26T09:00:00.000Z";
 

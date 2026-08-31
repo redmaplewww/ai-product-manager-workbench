@@ -1,6 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { jwtVerify, SignJWT } from "jose";
+import "./env";
 import { readState } from "./store";
 
 const secret = new TextEncoder().encode(process.env.SESSION_SECRET || "pm-studio-development-secret-change-me");

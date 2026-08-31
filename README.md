@@ -24,7 +24,7 @@ pnpm dev
 
 打开 `http://localhost:3000`。首次本地运行会在 `data/studio.json` 建立可恢复的开发数据。仅在未配置环境变量的本地开发模式中，会建立 `admin`、`editor`、`reviewer` 演示账号，共同密码 `Admin123!`；共享或公开可访问的部署必须在首次启动前设置 `PM_STUDIO_BOOTSTRAP_PASSWORD`。没有模型密钥时，界面会明确显示 `DEMO MODE`，不会把模板输出标成真实模型结果。
 
-复制 `.env.example` 为 `.env.local` 后配置真实模型。至少 32 位随机 `SESSION_SECRET` 是生产必填项。模型密钥只从进程环境读取，不进入状态文件、数据库或日志。
+复制 `.env.example` 为 `.env.local` 后配置真实模型，并填写 `OPENAI_BASE_URL`、`DEEPSEEK_BASE_URL` 对应的服务地址。至少 32 位随机 `SESSION_SECRET` 是生产必填项。模型密钥只从进程环境读取，不进入状态文件、数据库或日志。
 
 ## 验证
 

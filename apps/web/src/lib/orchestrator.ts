@@ -1,7 +1,8 @@
 import "server-only";
 import OpenAI from "openai";
-import { Agent, run as runAgent } from "@openai/agents";
+import { Agent, OpenAIProvider, run as runAgent, setDefaultModelProvider } from "@openai/agents";
 import { z } from "zod";
+import { providerBaseUrl } from "./env";
 import {
   assembleProductContext,
   classifyTurnIntent,
@@ -12,6 +13,11 @@ import {
   type TurnIntent
 } from "@pm-studio/core";
 import { id, now } from "./ids";
+
+setDefaultModelProvider(new OpenAIProvider({
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: providerBaseUrl("openai")
+}));
 
 const expertOutputSchema = z.object({ summary: z.string(), findings: z.array(z.string()), openQuestions: z.array(z.string()) });
 const pmOutputSchema = z.object({ answer: z.string(), openQuestions: z.array(z.string()) });
@@ -74,7 +80,7 @@ async function deepSeekReview(input: string, content: string, intent: TurnIntent
   if (!process.env.DEEPSEEK_API_KEY) return localExpert("批判评审", content, intent, "Demo", "demo-review");
   const model = process.env.DEEPSEEK_REVIEW_MODEL || "deepseek-v4-pro";
   const started = Date.now();
-  const client = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" });
+  const client = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: providerBaseUrl("deepseek") });
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const response = await client.chat.completions.create({
