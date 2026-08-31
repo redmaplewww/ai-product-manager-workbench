@@ -41,7 +41,7 @@ export async function createSeedState(): Promise<StudioState> {
       { id: "msg_1", projectId: "prj_pmstudio", role: "user", author: "产品负责人", content: "我们需要一个持续理解产品的 AI 产品经理，不要每轮都从头开始。", citations: [], createdAt: "2026-08-26T10:00:00.000Z" },
       { id: "msg_2", projectId: "prj_pmstudio", role: "assistant", author: "AI 产品经理", content: "我已将“跨会话保持产品理解”识别为核心约束。建议把对话历史、已确认产品事实和提示词流程分层保存，并且任何正式基线变更都先生成待审批提案。当前仍需确认：候选记忆是否允许低权重参与后续讨论？", citations: [], runId: "run_seed", createdAt: "2026-08-26T10:01:00.000Z" }
     ],
-    runs: [{ id: "run_seed", projectId: "prj_pmstudio", status: "completed", costUsd: 0.018, durationMs: 6840, demoMode: true, createdAt: "2026-08-26T10:00:01.000Z", completedAt: "2026-08-26T10:00:08.000Z", steps: [
+    runs: [{ id: "run_seed", projectId: "prj_pmstudio", status: "completed", costUsd: 0.018, durationMs: 6840, demoMode: true, workflowMode: "structured", createdAt: "2026-08-26T10:00:01.000Z", completedAt: "2026-08-26T10:00:08.000Z", steps: [
       { id: "step_1", agent: "需求分析", provider: "OpenAI", model: "gpt-5.6-terra", status: "completed", summary: "识别持续记忆和审批边界", durationMs: 2140, retries: 0, startedAt: "2026-08-26T10:00:01.000Z" },
       { id: "step_2", agent: "批判评审", provider: "DeepSeek", model: "deepseek-v4-pro", status: "completed", summary: "发现候选记忆污染正式基线的风险", durationMs: 2810, retries: 0, startedAt: "2026-08-26T10:00:03.000Z" },
       { id: "step_3", agent: "PM 综合", provider: "OpenAI", model: "gpt-5.6-terra", status: "completed", summary: "形成分层记忆建议与澄清问题", durationMs: 1890, retries: 0, startedAt: "2026-08-26T10:00:06.000Z" }

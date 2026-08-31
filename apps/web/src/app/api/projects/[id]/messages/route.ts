@@ -12,7 +12,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const user = await requireRole(["admin", "editor", "reviewer"]);
     const input = sendMessageInputSchema.parse(await request.json());
     const { id } = await context.params;
-    const result = await updateState((state) => executeTurn(state, id, input.content, user.name));
+    const result = await updateState((state) => executeTurn(state, id, input.content, user.name, input.workflowMode));
     return NextResponse.json(result, { status: 201 });
   } catch (error) { return apiError(error); }
 }

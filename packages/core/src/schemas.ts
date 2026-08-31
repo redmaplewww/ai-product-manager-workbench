@@ -4,6 +4,7 @@ export const roleSchema = z.enum(["admin", "editor", "reviewer"]);
 export const projectStageSchema = z.enum(["discovery", "definition", "planning", "delivery"]);
 export const memoryTypeSchema = z.enum(["fact", "constraint", "decision", "preference", "assumption", "risk", "open_question", "conflict"]);
 export const memoryStatusSchema = z.enum(["candidate", "confirmed", "forgotten", "superseded"]);
+export const workflowModeSchema = z.enum(["structured", "explore"]);
 
 export const userSchema = z.object({
   id: z.string(), name: z.string(), username: z.string(), role: roleSchema,
@@ -43,7 +44,7 @@ export const agentStepSchema = z.object({
 
 export const runSchema = z.object({
   id: z.string(), projectId: z.string(), status: z.enum(["queued", "running", "completed", "failed"]), steps: z.array(agentStepSchema),
-  costUsd: z.number(), durationMs: z.number(), demoMode: z.boolean(), createdAt: z.string(), completedAt: z.string().optional()
+  costUsd: z.number(), durationMs: z.number(), demoMode: z.boolean(), workflowMode: workflowModeSchema.default("structured"), createdAt: z.string(), completedAt: z.string().optional()
 });
 
 export const proposalSchema = z.object({
@@ -85,7 +86,7 @@ export const studioStateSchema = z.object({
   evolutionProposals: z.array(evolutionProposalSchema), auditEvents: z.array(auditEventSchema)
 });
 
-export const sendMessageInputSchema = z.object({ content: z.string().trim().min(1).max(12000) });
+export const sendMessageInputSchema = z.object({ content: z.string().trim().min(1).max(12000), workflowMode: workflowModeSchema });
 export const createProjectInputSchema = z.object({ name: z.string().trim().min(2).max(80), description: z.string().trim().min(4).max(500) });
 
 export type StudioState = z.infer<typeof studioStateSchema>;
@@ -96,3 +97,4 @@ export type AgentRun = z.infer<typeof runSchema>;
 export type ChangeProposal = z.infer<typeof proposalSchema>;
 export type MemoryItem = z.infer<typeof memorySchema>;
 export type Source = z.infer<typeof sourceSchema>;
+export type WorkflowMode = z.infer<typeof workflowModeSchema>;
