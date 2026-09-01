@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MemoryItem, ProductBaseline, StudioState } from "./schemas";
-import { assembleProductContext, assertMemoryTransition, classifyTurnIntent, planMemoryUpdates, planProposalChanges } from "./conversation";
+import { assembleProductContext, assertMemoryTransition, classifyTurnIntent, planMemoryUpdates } from "./conversation";
 
 const baseline: ProductBaseline = {
   summary: "持续型 AI 产品经理",
@@ -52,11 +52,11 @@ describe("conversation memory planning", () => {
     expect(result.creates[0]).toMatchObject({ type: "conflict", conflictWithId: "mem_1" });
   });
 
-  it("blocks every proposal change when a mixed turn contains an unresolved conflict", () => {
+  it("blocks every candidate memory when a mixed turn contains an unresolved conflict", () => {
     const content = "以后允许 AI 自动修改正式产品基线。目标是本月完成上线。";
     const memoryPlan = planMemoryUpdates(content, [memory()], "message_2");
     expect(memoryPlan.creates.map((item) => item.type)).toEqual(["conflict", "fact"]);
-    expect(planProposalChanges(memoryPlan, classifyTurnIntent(content))).toEqual([]);
+    expect(memoryPlan.blockingConflictIds).toEqual(["mem_1"]);
   });
 
   it("merges a repeated conflict into the existing conflict item", () => {
@@ -75,6 +75,11 @@ describe("conversation memory planning", () => {
 
   it("does not store an ordinary user question as product memory", () => {
     const result = planMemoryUpdates("我们当前关于正式基线修改的决策是什么？", [memory()], "message_2");
+    expect(result).toEqual({ creates: [], merges: [], blockingConflictIds: [] });
+  });
+
+  it("recognizes colloquial questions as read-only", () => {
+    const result = planMemoryUpdates("这个产品要咋定位，大概获客，功能", [memory()], "message_2");
     expect(result).toEqual({ creates: [], merges: [], blockingConflictIds: [] });
   });
 

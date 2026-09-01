@@ -23,11 +23,11 @@ Browser -> Next.js REST/SSE -> durable job queue -> Worker
 
 ## 3. Agent 运行图
 
-1. PM 总控读取已批准基线、最近对话、已确认记忆、候选记忆、来源片段和未解决冲突。
-2. 需求分析、领域分析和交付规划最多三个并行执行。
-3. 独立批判评审检查矛盾、证据缺口、假设和越权风险。
-4. PM 综合用户可见回答，不暴露内部思维链。
-5. 记忆整理器只生成候选记忆与资产补丁。
+运行时统一保存为 `Run -> Wave -> Action -> Result`。Agent 和 Tool 都是可注册的 Capability；Planner 只负责自由探索的 Todo 与下一 Wave，不能直接修改产品状态。
+
+结构化模式由固定工作流编译为：需求分析、领域分析、交付规划并行；批判评审；PM 综合；记忆/提案投影。自由探索由 Planner 输出 Todo 和调用 Action，每轮读取上一轮 Result 的收获、缺口和证据后继续或收束；无论 Planner 是否直接给出阶段性答复，最终都必须把完整上下文交给 PM 综合。两种模式共用 Action、Result、模型路由、PM 输出和轨迹展示。
+
+每个 Result 至少包含 `summary`、`solved`、`remaining` 和 `evidenceRefs`。`remaining` 中的 gap 带稳定 `key` 与建议能力。只有 Action 的 `calls` 实际存在时才执行下一轮；同一 Todo 上同一能力可以重复，但后续调用必须通过 `basedOnGap` 指向上一轮真实未解决的 gap，并且目标要发生变化。探索没有未完成 Todo 且没有新 Action 时结束 Planner 循环，但 Planner 文本只作为 PM 输入，不直接作为最终答复。
 
 默认路由为 OpenAI `gpt-5.6-terra`、复杂升级 `gpt-5.6-sol`、DeepSeek `deepseek-v4-flash` 和 `deepseek-v4-pro`。没有密钥时系统明确进入 Demo 模式，不把模板结果标成真实推理。
 
@@ -39,7 +39,7 @@ Browser -> Next.js REST/SSE -> durable job queue -> Worker
 Outcome -> Capability -> Epic -> WorkItem -> AcceptanceCriterion
 ```
 
-每项提案携带 `baseVersion`。审批时如果正式基线已前进，提案进入 `stale`，返回 HTTP 409 并要求重新生成差异，禁止静默合并。批准会复制当前基线、应用用户选择的路径并创建新的不可变 `ArtifactVersion`。
+每项提案携带 `baseVersion`。PM 输出 `audience`、`goals`、`metrics`、`scope`、`nonGoals`、`requirements`、`risks`、`decisions`、`openQuestions` 分组候选，投影器将其归一化为带明确路径的插入变更；复杂的 `outcomes` 暂不纳入首版提案契约。审批时如果正式基线已前进，提案进入 `stale`，返回 HTTP 409 并要求重新生成差异，禁止静默合并。批准会复制当前基线、应用用户选择的路径并创建新的不可变 `ArtifactVersion`。
 
 记忆状态为 `candidate`、`confirmed`、`forgotten`、`superseded`。纠正不会物理删除旧记录，而是创建带 `supersedesId` 的新版本。
 
@@ -59,7 +59,7 @@ Prompt/流程改进只生成 `ImprovementProposal`。发布同时要求：结构
 
 ## 7. 部署与可观测性
 
-`compose.yaml` 描述 Web、Worker、PostgreSQL/pgvector 和 MinIO。`infra/migrations/0001_init.sql` 是生产数据基线。正式上线前还必须完成并在容器环境验证：
+`compose.yaml` 描述 Web、Worker、PostgreSQL/pgvector 和 MinIO。开发版当前在 Web 进程内以 JSON 状态同步执行统一运行时；生产版仍必须接入持久队列和 Worker。`infra/migrations/0001_init.sql` 是生产数据基线。正式上线前还必须完成并在容器环境验证：
 
 - PostgreSQL repository 与 pg-boss worker 的实际接线和重启恢复；
 - S3 原文件保存、文档解析、分块与嵌入流水线；

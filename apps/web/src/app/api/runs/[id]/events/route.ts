@@ -9,7 +9,11 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const encoder = new TextEncoder();
   const stream = new ReadableStream({ start(controller) {
     controller.enqueue(encoder.encode(`event: run.queued\ndata: ${JSON.stringify({ runId: run.id })}\n\n`));
-    for (const step of run.steps) controller.enqueue(encoder.encode(`event: agent.completed\ndata: ${JSON.stringify(step)}\n\n`));
+    for (const wave of run.waves) {
+      controller.enqueue(encoder.encode(`event: wave.started\ndata: ${JSON.stringify({ runId: run.id, waveId: wave.id, index: wave.index })}\n\n`));
+      for (const action of wave.actions) controller.enqueue(encoder.encode(`event: action.completed\ndata: ${JSON.stringify(action)}\n\n`));
+      controller.enqueue(encoder.encode(`event: wave.completed\ndata: ${JSON.stringify(wave)}\n\n`));
+    }
     controller.enqueue(encoder.encode(`event: run.${run.status}\ndata: ${JSON.stringify(run)}\n\n`));
     controller.close();
   }});

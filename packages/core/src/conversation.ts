@@ -12,7 +12,6 @@ export type MemoryUpdatePlan = {
   blockingConflictIds: string[];
 };
 
-export type ProposalChangeDraft = { path: string; after: string; selected: true };
 export type MemoryAction = "confirm" | "forget" | "correct" | "restore";
 
 export type ProductContext = {
@@ -61,7 +60,7 @@ function splitStatements(content: string) {
 }
 
 function isQuestion(content: string) {
-  return /[?？]|怎么|为何|为什么|是否|能否|可否|能不能|吗(?:[。！!]?$)|呢(?:[。！!]?$)/u.test(content);
+  return /[?？]|怎么|咋|如何|为何|为什么|是否|能否|可否|能不能|要不要|请问|想知道|吗(?:[。！!]?$)|呢(?:[。！!]?$)/u.test(content);
 }
 
 export function classifyTurnIntent(content: string): TurnIntent {
@@ -136,18 +135,6 @@ export function planMemoryUpdates(content: string, memories: MemoryItem[], sourc
   }
 
   return { creates: creates.slice(0, 3), merges, blockingConflictIds: [...new Set(blockingConflictIds)] };
-}
-
-export function planProposalChanges(memoryPlan: MemoryUpdatePlan, intent: TurnIntent): ProposalChangeDraft[] {
-  if (memoryPlan.blockingConflictIds.length) return [];
-  return memoryPlan.creates.map((memory) => {
-    const path = memory.type === "risk" ? "/risks/-"
-      : memory.type === "decision" ? "/decisions/-"
-      : memory.type === "open_question" ? "/openQuestions/-"
-      : intent === "goal" ? "/goals/-"
-      : "/requirements/-";
-    return { path, after: memory.content, selected: true as const };
-  });
 }
 
 export function assertMemoryTransition(memory: Pick<MemoryItem, "status" | "type">, action: MemoryAction) {

@@ -2,12 +2,13 @@ import { canRunExploreRound, type ExploreCall, type ExplorePlan } from "./explor
 
 type ExploreObservation = {
   action: ExploreCall;
-  summary: string;
+  actionId: string;
+  result: { summary: string; solved: string[]; remaining: Array<{ key: string; question: string; suggestedCapabilityIds: string[] }>; evidenceRefs: string[] };
 };
 
 type ExploreLoopOptions = {
   decide: (round: number, observations: ExploreObservation[]) => Promise<ExplorePlan>;
-  execute: (action: ExploreCall) => Promise<{ summary: string }>;
+  execute: (action: ExploreCall) => Promise<{ actionId: string; summary: string; solved: string[]; remaining: Array<{ key: string; question: string; suggestedCapabilityIds: string[] }>; evidenceRefs: string[] }>;
 };
 
 export async function runExploreLoop({ decide, execute }: ExploreLoopOptions) {
@@ -17,7 +18,7 @@ export async function runExploreLoop({ decide, execute }: ExploreLoopOptions) {
     if (!plan.calls.length) return { answer: plan.text, summary: plan.summary, observations, exhausted: false };
     for (const action of plan.calls) {
       const result = await execute(action);
-      observations.push({ action, summary: result.summary });
+      observations.push({ action, actionId: result.actionId, result });
     }
   }
   return { answer: undefined, summary: "已达到探索轮次上限。", observations, exhausted: true };

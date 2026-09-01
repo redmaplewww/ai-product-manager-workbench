@@ -24,6 +24,7 @@
 | A-008 | 普通问答不污染记忆；重复来源合并；冲突不覆盖、不建提案 | 通过 | 核心回归测试与本机 HTTP 会话 | E-006,E-007 |
 | A-009 | 纠正创建 supersedes 新版本，旧版本不可恢复；上下文保留正式决策/约束 | 通过 | 状态机/预算测试与独立源码验证 | E-006,E-007 |
 | A-010 | 公开仓库可未登录访问且不包含本地敏感状态 | 通过 | 公共 API、Raw README、匿名浅克隆、跟踪路径和分支一致性检查 | E-009 |
+| A-011 | 结构化 DAG 与自由探索使用统一 Run/Wave/Action/Result，旧 steps 状态可迁移 | 通过（本机） | `vitest run`、`tsc --noEmit`、真实 `studio.json` 迁移后 Schema 校验 | E-010 |
 
 ## 证据索引
 
@@ -38,6 +39,7 @@
 | E-007 | 2026-08-26 15:02 +08:00 | AgentOps Validate 独立只读复核；`pnpm test`; `pnpm typecheck`; `pnpm build` | PASS；0/0/0 | 8 个固定文件 SHA256，conversation 75E1EF2D...3273，orchestrator 6256935E...9782 | 8 项验收全部通过，20 项测试通过，无开放发现；真实供应商和浏览器视觉未检查 | 独立验证上下文与本机终端 | 固定文件变更后失效 |
 | E-008 | 2026-08-26 14:51 +08:00 | 停止并重新启动 `pnpm dev`，读取健康与持久状态 | 200 | local-json 状态 | 恢复基线 v4、消息、候选冲突及其 confirmed 目标；端口 3000 重新监听 | `http://localhost:3000/api/health` | 存储/部署变更后失效 |
 | E-009 | 2026-08-26 | GitHub 公共 API、Raw README、无凭据浅克隆、敏感路径扫描、`main` SHA 对比 | 200/200/0/0 | `f444288b3760b7f12dd4df3bb28661e31cbce87a` | 仓库为 public；匿名克隆成功；本地与远端一致；无 `.env`、运行数据、构建缓存或子模块 | `https://github.com/redmaplewww/ai-product-manager-workbench` | 远端分支或可见性变化后失效 |
+| E-010 | 2026-09-01 | `./apps/web/node_modules/.bin/vitest run`; `./apps/web/node_modules/.bin/tsc --noEmit -p apps/web/tsconfig.json`；真实 `data/studio.json` 迁移后 `studioStateSchema.parse`；本地登录后项目页 | 0/0/0/200 | working tree（未提交） | 12 个测试文件、57 项通过；统一运行状态、旧数据迁移、PM 统一综合、分组提案投影、solved/remaining Result、基于 gap 的重复探索调用、状态文件安全迁移及项目路由通过；Next 在 3000 提供登录后项目页；生产构建、实时 SSE 和容器 Gate 未执行 | 本机终端与 `apps/web/src/lib/state-migration.ts` | 源码、Schema、存储或部署变更后失效 |
 
 ## Gate 记录
 

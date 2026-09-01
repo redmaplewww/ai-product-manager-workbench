@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { getAgent, getExecutableTool } from "./catalog";
+import { getAgent } from "./catalog";
 
-describe("agent catalog", () => {
-  it("resolves the registered requirements analyst", () => {
-    expect(getAgent("requirements-analyst")?.name).toBe("需求分析");
+describe("agent catalog contracts", () => {
+  it("declares the existing baseline categories for PM proposal output", () => {
+    const prompt = getAgent("pm-synthesizer")?.prompt || "";
+    expect(prompt).toContain("audience、goals、metrics、scope、nonGoals、requirements、risks、decisions、openQuestions");
   });
 
-  it("does not expose an unimplemented tool as executable", () => {
-    expect(getExecutableTool("source-search")).toBeUndefined();
+  it("requires every expert conclusion to separate solved and remaining work", () => {
+    expect(getAgent("requirements-analyst")?.prompt).toContain("solved");
+    expect(getAgent("requirements-analyst")?.prompt).toContain("remaining");
+    expect(getAgent("exploration-planner")?.prompt).toContain("basedOnGap");
   });
 });

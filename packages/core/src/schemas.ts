@@ -5,6 +5,7 @@ export const projectStageSchema = z.enum(["discovery", "definition", "planning",
 export const memoryTypeSchema = z.enum(["fact", "constraint", "decision", "preference", "assumption", "risk", "open_question", "conflict"]);
 export const memoryStatusSchema = z.enum(["candidate", "confirmed", "forgotten", "superseded"]);
 export const workflowModeSchema = z.enum(["structured", "explore"]);
+export const proposalPathSchema = z.enum(["/summary", "/problem", "/audience/-", "/goals/-", "/metrics/-", "/scope/-", "/nonGoals/-", "/requirements/-", "/risks/-", "/decisions/-", "/openQuestions/-"]);
 
 export const userSchema = z.object({
   id: z.string(), name: z.string(), username: z.string(), role: roleSchema,
@@ -37,19 +38,32 @@ export const messageSchema = z.object({
   citations: z.array(z.string()).default([]), runId: z.string().optional(), createdAt: z.string()
 });
 
-export const agentStepSchema = z.object({
-  id: z.string(), agent: z.string(), provider: z.string(), model: z.string(), status: z.enum(["queued", "running", "completed", "failed"]),
-  summary: z.string(), durationMs: z.number(), retries: z.number(), startedAt: z.string()
+export const runTodoSchema = z.object({ id: z.string(), title: z.string(), status: z.enum(["open", "done"]) });
+export const resultGapSchema = z.object({ key: z.string(), question: z.string(), suggestedCapabilityIds: z.array(z.string()) });
+export const capabilityResultSchema = z.object({ summary: z.string(), solved: z.array(z.string()), remaining: z.array(resultGapSchema), evidenceRefs: z.array(z.string()) });
+export const actionExecutionSchema = z.object({
+  route: z.enum(["primary", "fallback", "system"]), provider: z.string().optional(), model: z.string().optional(), durationMs: z.number(), retries: z.number()
+});
+export const runActionSchema = z.object({
+  id: z.string(), capabilityId: z.string(), todoId: z.string().optional(), goal: z.string(),
+  basedOnGap: z.object({ actionId: z.string(), gapKey: z.string() }).optional(),
+  status: z.enum(["queued", "running", "succeeded", "failed"]), execution: actionExecutionSchema,
+  result: capabilityResultSchema.optional(), error: z.string().optional(), startedAt: z.string().optional(), completedAt: z.string().optional()
+});
+export const executionWaveSchema = z.object({
+  id: z.string(), index: z.number(), source: z.enum(["workflow", "planner", "system"]), summary: z.string(), actions: z.array(runActionSchema),
+  createdAt: z.string().optional(), completedAt: z.string().optional()
 });
 
 export const runSchema = z.object({
-  id: z.string(), projectId: z.string(), status: z.enum(["queued", "running", "completed", "failed"]), steps: z.array(agentStepSchema),
-  costUsd: z.number(), durationMs: z.number(), demoMode: z.boolean(), workflowMode: workflowModeSchema.default("structured"), createdAt: z.string(), completedAt: z.string().optional()
+  id: z.string(), projectId: z.string(), userMessageId: z.string().optional(), workflowMode: workflowModeSchema.default("structured"),
+  status: z.enum(["queued", "running", "completed", "failed"]), todos: z.array(runTodoSchema).default([]), waves: z.array(executionWaveSchema).default([]),
+  costUsd: z.number(), durationMs: z.number(), createdAt: z.string(), completedAt: z.string().optional()
 });
 
 export const proposalSchema = z.object({
   id: z.string(), projectId: z.string(), title: z.string(), rationale: z.string(), baseVersion: z.number(), status: z.enum(["pending", "accepted", "rejected", "stale"]),
-  changes: z.array(z.object({ path: z.string(), before: z.unknown().optional(), after: z.unknown(), selected: z.boolean().default(true) })),
+  changes: z.array(z.object({ path: proposalPathSchema, before: z.unknown().optional(), after: z.unknown(), selected: z.boolean().default(true) })),
   createdByRunId: z.string().optional(), createdAt: z.string(), reviewedAt: z.string().optional()
 });
 
@@ -98,3 +112,7 @@ export type ChangeProposal = z.infer<typeof proposalSchema>;
 export type MemoryItem = z.infer<typeof memorySchema>;
 export type Source = z.infer<typeof sourceSchema>;
 export type WorkflowMode = z.infer<typeof workflowModeSchema>;
+export type RunTodo = z.infer<typeof runTodoSchema>;
+export type RunAction = z.infer<typeof runActionSchema>;
+export type ExecutionWave = z.infer<typeof executionWaveSchema>;
+export type CapabilityResult = z.infer<typeof capabilityResultSchema>;
