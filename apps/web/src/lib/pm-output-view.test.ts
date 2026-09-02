@@ -3,10 +3,10 @@ import { readPmProposal } from "./pm-output-view";
 
 describe("readPmProposal", () => {
   it("reads the PM proposal from a persisted run output", () => {
-    expect(readPmProposal({ proposal: { title: "HR 初筛", rationale: "整理业务场景", changes: [{ path: "/audience/-", after: "HR 招聘人员" }] } })).toEqual({
+    expect(readPmProposal({ proposalTitle: "HR 初筛", proposalRationale: "整理业务场景", proposal: [{ category: "audience", content: "HR 招聘人员" }] })).toEqual({
       title: "HR 初筛",
       rationale: "整理业务场景",
-      changes: [{ path: "/audience/-", after: "HR 招聘人员" }]
+      items: [{ category: "audience", content: "HR 招聘人员" }]
     });
   });
 

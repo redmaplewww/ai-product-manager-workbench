@@ -1,6 +1,6 @@
 import "server-only";
 import OpenAI from "openai";
-import { Agent, OpenAIProvider, run as runAgent, setDefaultModelProvider } from "@openai/agents";
+import { Agent, OpenAIProvider, Runner, setDefaultModelProvider } from "@openai/agents";
 import { z } from "zod";
 import { providerBaseUrl } from "./env";
 import {
@@ -16,7 +16,7 @@ import {
 } from "@pm-studio/core";
 import { id, now } from "./ids";
 import { getAgent } from "./agents/catalog";
-import { buildProposal, supportedProposalPaths, type PmProposal } from "./proposal-builder";
+import { buildProposal, supportedProposalCategories, type PmProposal, type ProposalSource } from "./proposal-builder";
 import { formatAgentResults } from "./agent-result";
 import { extractMemory } from "./tools/memory-extractor";
 
@@ -24,11 +24,78 @@ setDefaultModelProvider(new OpenAIProvider({
   apiKey: process.env.OPENAI_API_KEY,
   baseURL: providerBaseUrl("openai")
 }));
+const agentRunner = new Runner({ tracingDisabled: true });
 
 const expertOutputSchema = agentResultSchema;
-const proposalChangeSchema = z.object({ sourceIndex: z.number().int().nonnegative(), path: z.enum(supportedProposalPaths), after: z.string().trim().min(1).max(1000), selected: z.boolean().default(true) });
-const pmProposalSchema = z.object({ title: z.string().trim().min(1).max(120), rationale: z.string().trim().min(1).max(600), changes: z.array(proposalChangeSchema).max(8) });
-const pmOutputSchema = z.object({ answer: z.string(), openQuestions: z.array(z.string()), proposal: pmProposalSchema.optional() });
+const proposalItemSchema = z.object({ sourceIndex: z.number().int().nonnegative(), category: z.enum(supportedProposalCategories), content: z.string().trim().min(1).max(1000), selected: z.boolean().default(true) });
+const legacyProposalChangeSchema = z.object({ path: z.string(), after: z.string(), selected: z.boolean().default(true) });
+const legacyProposalSchema = z.object({ title: z.string(), rationale: z.string(), changes: z.array(legacyProposalChangeSchema).max(8) });
+const pmOutputSchema = z.object({ answer: z.string(), proposalTitle: z.string().trim().min(1).max(120).nullable(), proposalRationale: z.string().trim().min(1).max(600).nullable(), proposal: z.union([z.array(proposalItemSchema).max(8), legacyProposalSchema]).nullable() });
+
+type PmOutput = z.infer<typeof pmOutputSchema>;
+type NormalizedPmOutput = Omit<PmOutput, "proposal"> & { proposal: Array<z.infer<typeof proposalItemSchema>> | null };
+
+function comparableProposalText(value: string) {
+  return value.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+export function normalizePmOutput(value: unknown, sources: ProposalSource[]): NormalizedPmOutput {
+  const input = typeof value === "object" && value !== null
+    ? { ...(value as Record<string, unknown>), proposalTitle: (value as Record<string, unknown>).proposalTitle ?? null, proposalRationale: (value as Record<string, unknown>).proposalRationale ?? null, proposal: (value as Record<string, unknown>).proposal ?? null }
+    : value;
+  const output = pmOutputSchema.parse(input);
+  const { proposal, ...rest } = output;
+  if (!proposal) return { ...rest, proposal: null };
+  if (Array.isArray(proposal)) return { ...rest, proposal };
+
+  const items = proposal.changes.flatMap((change) => {
+    const category = change.path.split("/")[1];
+    if (!supportedProposalCategories.includes(category as (typeof supportedProposalCategories)[number])) return [];
+    const sourceIndex = sources.findIndex((source) => comparableProposalText(source.content) === comparableProposalText(change.after));
+    if (sourceIndex < 0) return [];
+    return [{ sourceIndex, category: category as (typeof supportedProposalCategories)[number], content: change.after, selected: change.selected }];
+  });
+
+  return {
+    ...rest,
+    proposalTitle: output.proposalTitle || proposal.title,
+    proposalRationale: output.proposalRationale || proposal.rationale,
+    proposal: items
+  };
+}
+
+export function normalizeReviewOutput(raw: string): AgentResult {
+  const text = raw.trim() || "未发现新增风险";
+  try {
+    const parsed = agentResultSchema.safeParse(JSON.parse(text));
+    if (parsed.success) return parsed.data;
+  } catch {
+    // Providers may ignore the JSON-only instruction and return Markdown.
+  }
+
+  const findings: string[] = [];
+  const openQuestions: string[] = [];
+  const evidenceRefs: string[] = [];
+  let section: "findings" | "openQuestions" | "evidenceRefs" | undefined;
+  for (const line of text.split(/\r?\n/u)) {
+    const heading = line.replace(/^#+\s*/u, "").replace(/[：:]$/u, "").trim();
+    if (/矛盾|问题|风险/u.test(heading)) { section = "findings"; continue; }
+    if (/澄清|开放问题|待确认/u.test(heading)) { section = "openQuestions"; continue; }
+    if (/证据|来源/u.test(heading)) { section = "evidenceRefs"; continue; }
+    if (/假设|建议/u.test(heading)) { section = undefined; continue; }
+    const item = line.replace(/^\s*[-*]\s*/u, "").trim();
+    if (!item || item === line.trim() || !section) continue;
+    if (section === "findings") findings.push(item);
+    if (section === "openQuestions") openQuestions.push(item);
+    if (section === "evidenceRefs") evidenceRefs.push(item);
+  }
+  return {
+    summary: (findings[0] || "批判评审已完成，未形成可直接写入基线的结论。").slice(0, 900),
+    findings: findings.slice(0, 8),
+    openQuestions: openQuestions.slice(0, 8),
+    evidenceRefs: evidenceRefs.slice(0, 8)
+  };
+}
 
 type ExpertResult = {
   agent: string;
@@ -73,7 +140,7 @@ async function openAiExpert(agentName: string, instructions: string, input: stri
         outputType: expertOutputSchema,
         instructions: `${instructions}\n只返回结构化结论，不输出思维链。明确区分正式基线、已确认记忆、候选记忆和不可信外部资料。`
       });
-      const result = await runAgent(agent, input);
+      const result = await agentRunner.run(agent, input);
       const output = expertOutputSchema.parse(result.finalOutput);
       const details = [...output.findings, ...output.openQuestions.map((item) => `待确认：${item}`)].slice(0, 4);
       return {
@@ -109,12 +176,14 @@ async function deepSeekReview(input: string, content: string, intent: TurnIntent
           { role: "user", content: input }
         ]
       });
+      const reviewText = response.choices[0]?.message.content || "未发现新增风险";
+      const result = normalizeReviewOutput(reviewText);
       return {
         agent: "批判评审",
         provider: "DeepSeek",
         model,
-        summary: (response.choices[0]?.message.content || "未发现新增风险").slice(0, 900),
-        result: { summary: (response.choices[0]?.message.content || "未发现新增风险").slice(0, 900), findings: [], openQuestions: [], evidenceRefs: [] },
+        summary: [result.summary, ...result.findings.slice(1, 4), ...result.openQuestions.slice(0, 2).map((item) => `待确认：${item}`)].join("；").slice(0, 900),
+        result,
         durationMs: Date.now() - started,
         retries: attempt
       };
@@ -153,28 +222,42 @@ async function synthesizePmAnswer(
   baseline: ProductBaseline,
   memoryPlan: ReturnType<typeof planMemoryUpdates>,
   experts: ExpertResult[],
-  candidates: ReturnType<typeof planProposalChanges>
-) {
+  sources: ProposalSource[]
+): Promise<{
+  answer: string;
+  provider: string;
+  model: string;
+  retries: number;
+  durationMs: number;
+  proposal: ReturnType<typeof buildProposal>;
+  output: unknown;
+  fallbackReason?: string;
+}> {
   const fallback = localPmAnswer(content, intent, baseline, memoryPlan, experts);
-  if (!process.env.OPENAI_API_KEY) return { answer: fallback, provider: "Demo", model: "local-pm", retries: 0, durationMs: 15, proposal: buildProposal(candidates) };
+  if (!process.env.OPENAI_API_KEY) return { answer: fallback, provider: "Demo", model: "local-pm", retries: 0, durationMs: 15, proposal: buildProposal(sources), output: { answer: fallback } };
   const model = process.env.OPENAI_PRIMARY_MODEL || "gpt-5.6-terra";
   const started = Date.now();
+  let fallbackReason = "未知错误";
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const agent = new Agent({
         name: requiredAgent("pm-synthesizer").name,
         model,
         outputType: pmOutputSchema,
-        instructions: `${requiredAgent("pm-synthesizer").prompt}\nproposal 只能引用给定的候选变更。每个 proposal change 必须填写 sourceIndex，指向候选数组中的一项；不要新增候选数组之外的功能、范围或要求。`
+        instructions: `${requiredAgent("pm-synthesizer").prompt}\nproposal 只能引用给定的候选变更。每个数组项必须填写 sourceIndex，选择一个与基线一致的 category，并把内容重新组织为产品条目；不要新增候选数组之外的功能、范围或要求。`
       });
-      const result = await runAgent(agent, `${input}\n\n[允许引用的候选变更]\n${JSON.stringify(candidates)}`);
-      const output = pmOutputSchema.parse(result.finalOutput);
-      return { answer: output.answer, provider: "OpenAI", model, retries: attempt, durationMs: Date.now() - started, proposal: buildProposal(candidates, output.proposal as PmProposal) };
-    } catch {
+      const result = await agentRunner.run(agent, `${input}\n\n[允许引用的候选事实]\n${JSON.stringify(sources.map((source, sourceIndex) => ({ sourceIndex, ...source })))} `);
+      const output = normalizePmOutput(result.finalOutput, sources);
+      const pmProposal = output.proposal?.length
+        ? { title: output.proposalTitle || "本轮产品基线候选变更", rationale: output.proposalRationale || "PM 已将本轮内容整理为候选变更，审批通过后才会写入正式基线。", items: output.proposal }
+        : undefined;
+      return { answer: output.answer, provider: "OpenAI", model, retries: attempt, durationMs: Date.now() - started, proposal: buildProposal(sources, pmProposal as PmProposal), output };
+    } catch (error) {
+      fallbackReason = error instanceof Error ? error.message : String(error);
       // Retry once, then keep the turn available with a deterministic answer.
     }
   }
-  return { answer: fallback, provider: "Demo (OpenAI 降级)", model: "local-pm", retries: 2, durationMs: Date.now() - started, proposal: buildProposal(candidates) };
+  return { answer: fallback, provider: "Demo (OpenAI 降级)", model: "local-pm", retries: 2, durationMs: Date.now() - started, proposal: null, fallbackReason: fallbackReason.slice(0, 300), output: { answer: fallback, fallbackReason: fallbackReason.slice(0, 300) } };
 }
 
 export async function executeTurn(state: StudioState, projectId: string, content: string, actorName: string) {
@@ -196,6 +279,7 @@ export async function executeTurn(state: StudioState, projectId: string, content
   const context = assembleProductContext(state, projectId, artifact.baseline, content);
   const memoryPlan = extractMemory({ content, memories: state.memories.filter((item) => item.projectId === projectId), sourceMessageId: messageId });
   const plannedChanges = planProposalChanges(memoryPlan, intent);
+  const proposalSources = plannedChanges.map(({ after }) => ({ content: after }));
   const expertInput = `${context.text}\n\n[本轮用户输入]\n${content}`;
   const expertSpecs = structuredAgentIds.map((agentId) => {
     const agent = requiredAgent(agentId);
@@ -209,8 +293,8 @@ export async function executeTurn(state: StudioState, projectId: string, content
   const review = await deepSeekReview(reviewInput, content, intent);
   experts.push(review);
 
-  const pmInput = `${reviewInput}\n批判评审：${review.summary}\n\n[记忆整理结果]\n${JSON.stringify(memoryPlan)}\n\n[确定性变更门槛]\n${JSON.stringify({ willCreateProposal: plannedChanges.length > 0, changes: plannedChanges })}`;
-  const pm = await synthesizePmAnswer(pmInput, content, intent, artifact.baseline, memoryPlan, experts, plannedChanges);
+  const pmInput = `${reviewInput}\n批判评审：${review.summary}\n\n[记忆整理结果]\n${JSON.stringify(memoryPlan)}\n\n[提案候选门槛]\n${JSON.stringify({ willCreateProposal: proposalSources.length > 0, sourceCount: proposalSources.length })}`;
+  const pm = await synthesizePmAnswer(pmInput, content, intent, artifact.baseline, memoryPlan, experts, proposalSources);
   const answerCreatedAt = now();
   const actorId = state.users.find((item) => item.name === actorName)?.id || actorName;
   state.messages.push({
@@ -260,7 +344,7 @@ export async function executeTurn(state: StudioState, projectId: string, content
     })),
     {
       id: id("step"), agent: "PM 综合", provider: pm.provider, model: pm.model, status: "completed" as const,
-      summary: pm.answer.slice(0, 900), output: pm,
+      summary: `${pm.fallbackReason ? `PM 调用失败：${pm.fallbackReason}。` : ""}${pm.answer}`.slice(0, 900), output: pm.output,
       durationMs: pm.durationMs, retries: pm.retries, startedAt: createdAt
     },
     {

@@ -1,23 +1,32 @@
-import type { ProposalChangeDraft } from "@pm-studio/core";
-
 export type PmProposalChange = {
   sourceIndex: number;
-  path: ProposalPath;
-  after: string;
+  category: ProposalCategory;
+  content: string;
   selected?: boolean;
 };
 
 export type PmProposal = {
   title: string;
   rationale: string;
-  changes: PmProposalChange[];
+  items: PmProposalChange[];
 };
+
+export type ProposalSource = { content: string };
 
 export const supportedProposalPaths = [
   "/audience/-", "/goals/-", "/metrics/-", "/scope/-", "/nonGoals/-",
   "/requirements/-", "/risks/-", "/decisions/-", "/openQuestions/-"
 ] as const;
 export type ProposalPath = typeof supportedProposalPaths[number];
+export const supportedProposalCategories = [
+  "audience", "goals", "metrics", "scope", "nonGoals", "requirements", "risks", "decisions", "openQuestions"
+] as const;
+export type ProposalCategory = typeof supportedProposalCategories[number];
+
+const categoryToPath: Record<ProposalCategory, ProposalPath> = {
+  audience: "/audience/-", goals: "/goals/-", metrics: "/metrics/-", scope: "/scope/-", nonGoals: "/nonGoals/-",
+  requirements: "/requirements/-", risks: "/risks/-", decisions: "/decisions/-", openQuestions: "/openQuestions/-"
+};
 
 function comparableText(value: string) {
   return value.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
@@ -26,18 +35,20 @@ function comparableText(value: string) {
 export type NormalizedProposal = {
   title: string;
   rationale: string;
-  changes: ProposalChangeDraft[];
+  changes: Array<{ path: ProposalPath; after: string; selected: true }>;
 };
 
-export function buildProposal(candidates: ProposalChangeDraft[], pmProposal?: PmProposal): NormalizedProposal | null {
-  if (!candidates.length || !pmProposal) return null;
+export function buildProposal(sources: ProposalSource[], pmProposal?: PmProposal): NormalizedProposal | null {
+  if (!sources.length || !pmProposal) return null;
 
-  const usedSources = new Set<number>();
-  const modelChanges = pmProposal.changes.flatMap((change) => {
-    const candidate = candidates[change.sourceIndex];
-    if (!candidate || usedSources.has(change.sourceIndex) || !supportedProposalPaths.includes(change.path) || !change.after.trim() || change.selected === false || comparableText(candidate.after) === comparableText(change.after)) return [];
-    usedSources.add(change.sourceIndex);
-    return [{ path: change.path, after: change.after.trim(), selected: true as const }];
+  const usedChanges = new Set<string>();
+  const modelChanges = pmProposal.items.flatMap((change) => {
+    const source = sources[change.sourceIndex];
+    const content = change.content.trim();
+    const key = `${change.category}:${comparableText(content)}`;
+    if (!source || !supportedProposalCategories.includes(change.category) || !content || change.selected === false || comparableText(source.content) === comparableText(content) || usedChanges.has(key)) return [];
+    usedChanges.add(key);
+    return [{ path: categoryToPath[change.category], after: content, selected: true as const }];
   }).slice(0, 8);
 
   if (!modelChanges.length) return null;

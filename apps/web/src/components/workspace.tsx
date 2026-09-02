@@ -63,5 +63,5 @@ function BaselineList({ title, items, tone = "default" }: { title: string; items
 function PmTraceOutput({ output }: { output: unknown }) {
   const proposal = readPmProposal(output);
   if (!proposal) return null;
-  return <div className="pm-trace-output"><strong>PM 提案整理：{proposal.title}</strong><p>{proposal.rationale}</p>{proposal.changes.map((change, index) => <div key={`${change.path}:${index}`}><code>{change.path}</code><span>{change.after}</span></div>)}</div>;
+  return <div className="pm-trace-output"><strong>PM 提案整理：{proposal.title}</strong><p>{proposal.rationale}</p>{proposal.items.map((item, index) => <div key={`${item.category}:${index}`}><code>{item.category}</code><span>{item.content}</span></div>)}</div>;
 }
