@@ -36,9 +36,16 @@ export const messageSchema = z.object({
   citations: z.array(z.string()).default([]), runId: z.string().optional(), createdAt: z.string()
 });
 
+export const agentResultSchema = z.object({
+  summary: z.string(),
+  findings: z.array(z.string()).default([]),
+  openQuestions: z.array(z.string()).default([]),
+  evidenceRefs: z.array(z.string()).default([])
+});
+
 export const agentStepSchema = z.object({
   id: z.string(), agent: z.string(), provider: z.string(), model: z.string(), status: z.enum(["queued", "running", "completed", "failed"]),
-  summary: z.string(), durationMs: z.number(), retries: z.number(), startedAt: z.string()
+  summary: z.string(), result: agentResultSchema.optional(), output: z.unknown().optional(), durationMs: z.number(), retries: z.number(), startedAt: z.string()
 });
 
 export const runSchema = z.object({
@@ -92,6 +99,7 @@ export type StudioState = z.infer<typeof studioStateSchema>;
 export type Project = z.infer<typeof projectSchema>;
 export type ProductBaseline = z.infer<typeof baselineSchema>;
 export type Message = z.infer<typeof messageSchema>;
+export type AgentResult = z.infer<typeof agentResultSchema>;
 export type AgentRun = z.infer<typeof runSchema>;
 export type ChangeProposal = z.infer<typeof proposalSchema>;
 export type MemoryItem = z.infer<typeof memorySchema>;

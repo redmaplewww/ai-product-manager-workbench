@@ -5,24 +5,28 @@ import { z } from "zod";
 import { providerBaseUrl } from "./env";
 import {
   assembleProductContext,
+  agentResultSchema,
   classifyTurnIntent,
   planMemoryUpdates,
   planProposalChanges,
   type ProductBaseline,
+  type AgentResult,
   type StudioState,
   type TurnIntent
 } from "@pm-studio/core";
 import { id, now } from "./ids";
 import { getAgent } from "./agents/catalog";
-import { buildProposal, type PmProposal } from "./proposal-builder";
+import { buildProposal, supportedProposalPaths, type PmProposal } from "./proposal-builder";
+import { formatAgentResults } from "./agent-result";
+import { extractMemory } from "./tools/memory-extractor";
 
 setDefaultModelProvider(new OpenAIProvider({
   apiKey: process.env.OPENAI_API_KEY,
   baseURL: providerBaseUrl("openai")
 }));
 
-const expertOutputSchema = z.object({ summary: z.string(), findings: z.array(z.string()), openQuestions: z.array(z.string()) });
-const proposalChangeSchema = z.object({ sourceIndex: z.number().int().nonnegative(), path: z.string(), after: z.string().trim().min(1).max(1000), selected: z.boolean().default(true) });
+const expertOutputSchema = agentResultSchema;
+const proposalChangeSchema = z.object({ sourceIndex: z.number().int().nonnegative(), path: z.enum(supportedProposalPaths), after: z.string().trim().min(1).max(1000), selected: z.boolean().default(true) });
 const pmProposalSchema = z.object({ title: z.string().trim().min(1).max(120), rationale: z.string().trim().min(1).max(600), changes: z.array(proposalChangeSchema).max(8) });
 const pmOutputSchema = z.object({ answer: z.string(), openQuestions: z.array(z.string()), proposal: pmProposalSchema.optional() });
 
@@ -31,6 +35,7 @@ type ExpertResult = {
   provider: string;
   model: string;
   summary: string;
+  result: AgentResult;
   durationMs: number;
   retries: number;
 };
@@ -53,7 +58,8 @@ function localExpert(agent: string, content: string, intent: TurnIntent, provide
       : "本轮先更新产品理解；只有可执行的新事实进入候选提案，纯提问和重复表述不创建变更。",
     "批判评审": "已检查事实冲突、无来源推断、重复记忆和越权修改基线风险。"
   };
-  return { agent, provider, model, summary: summaries[agent], durationMs: 20 + agent.length * 7, retries };
+  const summary = summaries[agent];
+  return { agent, provider, model, summary, result: { summary, findings: [], openQuestions: [], evidenceRefs: [] }, durationMs: 20 + agent.length * 7, retries };
 }
 
 async function openAiExpert(agentName: string, instructions: string, input: string, content: string, intent: TurnIntent): Promise<ExpertResult> {
@@ -75,6 +81,7 @@ async function openAiExpert(agentName: string, instructions: string, input: stri
         provider: "OpenAI",
         model,
         summary: [output.summary, ...details].join("；").slice(0, 900),
+        result: output,
         durationMs: Date.now() - started,
         retries: attempt
       };
@@ -107,6 +114,7 @@ async function deepSeekReview(input: string, content: string, intent: TurnIntent
         provider: "DeepSeek",
         model,
         summary: (response.choices[0]?.message.content || "未发现新增风险").slice(0, 900),
+        result: { summary: (response.choices[0]?.message.content || "未发现新增风险").slice(0, 900), findings: [], openQuestions: [], evidenceRefs: [] },
         durationMs: Date.now() - started,
         retries: attempt
       };
@@ -186,7 +194,7 @@ export async function executeTurn(state: StudioState, projectId: string, content
   const started = Date.now();
   const intent = classifyTurnIntent(content);
   const context = assembleProductContext(state, projectId, artifact.baseline, content);
-  const memoryPlan = planMemoryUpdates(content, state.memories.filter((item) => item.projectId === projectId), messageId);
+  const memoryPlan = extractMemory({ content, memories: state.memories.filter((item) => item.projectId === projectId), sourceMessageId: messageId });
   const plannedChanges = planProposalChanges(memoryPlan, intent);
   const expertInput = `${context.text}\n\n[本轮用户输入]\n${content}`;
   const expertSpecs = structuredAgentIds.map((agentId) => {
@@ -197,7 +205,7 @@ export async function executeTurn(state: StudioState, projectId: string, content
   const experts = demoMode
     ? expertSpecs.map(([name]) => localExpert(name, content, intent))
     : await Promise.all(expertSpecs.map(([name, instructions]) => openAiExpert(name, instructions, expertInput, content, intent)));
-  const reviewInput = `${expertInput}\n\n[专家结论]\n${experts.map((item) => `${item.agent}：${item.summary}`).join("\n")}`;
+  const reviewInput = `${expertInput}\n\n[专家结构化结论]\n${formatAgentResults(experts)}`;
   const review = await deepSeekReview(reviewInput, content, intent);
   experts.push(review);
 
@@ -248,11 +256,11 @@ export async function executeTurn(state: StudioState, projectId: string, content
   run.steps.push(
     ...experts.map((item) => ({
       id: id("step"), agent: item.agent, provider: item.provider, model: item.model, status: "completed" as const,
-      summary: item.summary, durationMs: item.durationMs, retries: item.retries, startedAt: createdAt
+      summary: item.summary, result: item.result, durationMs: item.durationMs, retries: item.retries, startedAt: createdAt
     })),
     {
       id: id("step"), agent: "PM 综合", provider: pm.provider, model: pm.model, status: "completed" as const,
-      summary: `基于 v${project.baselineVersion} 基线、${context.counts.confirmedMemories} 条已确认记忆、${context.counts.candidateMemories} 条候选记忆和 ${context.counts.sources} 个来源生成统一答复。`,
+      summary: pm.answer.slice(0, 900), output: pm,
       durationMs: pm.durationMs, retries: pm.retries, startedAt: createdAt
     },
     {

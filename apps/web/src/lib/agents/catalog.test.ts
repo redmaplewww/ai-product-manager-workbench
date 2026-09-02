@@ -9,5 +9,6 @@ describe("agent catalog", () => {
 
   it("does not expose an unimplemented tool as executable", () => {
     expect(getExecutableTool("source-search")).toBeUndefined();
+    expect(getExecutableTool("memory-extractor")?.name).toBe("记忆提取器");
   });
 });
