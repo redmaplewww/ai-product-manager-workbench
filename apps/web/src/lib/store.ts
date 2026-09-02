@@ -9,6 +9,10 @@ const dataDir = path.resolve(process.cwd(), "../../data");
 const dataFile = path.join(dataDir, "studio.json");
 let queue = Promise.resolve();
 
+export function shouldBootstrapState(error: unknown) {
+  return (error as NodeJS.ErrnoException)?.code === "ENOENT";
+}
+
 function applyRuntimeModelConfiguration(state: StudioState) {
   state.models = state.models.map((model) => {
     if (model.provider === "openai" || model.provider === "deepseek") {
@@ -23,7 +27,10 @@ async function load(): Promise<StudioState> {
   try {
     return applyRuntimeModelConfiguration(studioStateSchema.parse(JSON.parse(await readFile(dataFile, "utf8"))));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn("Rebuilding invalid local state", error);
+    if (!shouldBootstrapState(error)) {
+      console.error("Invalid local state; refusing to overwrite it", error);
+      throw error;
+    }
     const state = await createSeedState();
     await persist(state);
     return state;

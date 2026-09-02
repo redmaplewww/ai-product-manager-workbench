@@ -61,7 +61,7 @@ function splitStatements(content: string) {
 }
 
 function isQuestion(content: string) {
-  return /[?？]|怎么|为何|为什么|是否|能否|可否|能不能|吗(?:[。！!]?$)|呢(?:[。！!]?$)/u.test(content);
+  return /[?？]|怎么|咋|如何|为何|为什么|是否|能否|可否|能不能|要不要|请问|想知道|吗(?:[。！!]?$)|呢(?:[。！!]?$)/u.test(content);
 }
 
 export function classifyTurnIntent(content: string): TurnIntent {
