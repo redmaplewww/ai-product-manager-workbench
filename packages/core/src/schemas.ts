@@ -66,7 +66,8 @@ export const reviewIssueOutputSchema = z.object({
   severity: z.enum(["blocking", "warning"]),
   targetRefs: z.array(z.string()),
   detail: z.string(),
-  evidenceIds: z.array(z.string())
+  evidenceIds: z.array(z.string()),
+  verification: z.enum(["confirmed", "rejected", "unresolved"]).nullable().default(null)
 });
 export const agentPacketOutputSchema = z.object({
   summary: z.string(),
@@ -83,6 +84,9 @@ export const agentPacketSchema = z.object({
   clarificationQuestions: z.array(clarificationQuestionOutputSchema.extend({ id: z.string() })),
   issues: z.array(reviewIssueOutputSchema.extend({ id: z.string() })),
   error: z.string().nullable()
+}).superRefine((packet, ctx) => {
+  if (packet.status === "completed" && packet.error !== null) ctx.addIssue({ code: "custom", path: ["error"], message: "completed packet cannot contain an error" });
+  if (packet.status === "failed" && packet.error === null) ctx.addIssue({ code: "custom", path: ["error"], message: "failed packet requires an error" });
 });
 export const reviewResponseSchema = z.object({
   issueId: z.string(),
@@ -104,7 +108,7 @@ export const pmSynthesisOutputSchema = z.object({
 
 export const agentStepSchema = z.object({
   id: z.string(), agent: z.string(), provider: z.string(), model: z.string(), status: z.enum(["queued", "running", "completed", "failed"]),
-  summary: z.string(), result: z.union([legacyAgentResultSchema, agentPacketSchema]).optional(), output: z.unknown().optional(), durationMs: z.number(), retries: z.number(), startedAt: z.string()
+  summary: z.string(), result: z.union([agentPacketSchema, legacyAgentResultSchema]).optional(), output: z.unknown().optional(), durationMs: z.number(), retries: z.number(), startedAt: z.string()
 });
 
 export const runSchema = z.object({
@@ -114,7 +118,7 @@ export const runSchema = z.object({
 
 export const proposalSchema = z.object({
   id: z.string(), projectId: z.string(), title: z.string(), rationale: z.string(), baseVersion: z.number(), status: z.enum(["pending", "accepted", "rejected", "stale"]),
-  changes: z.array(z.object({ path: z.string(), before: z.unknown().optional(), after: z.unknown(), selected: z.boolean().default(true), evidenceItemIds: z.array(z.string()).default([]) })),
+  changes: z.array(z.object({ path: z.string(), before: z.unknown().optional(), after: z.unknown(), selected: z.boolean().default(true), evidenceItemIds: z.array(z.string()).default([]), evidenceIds: z.array(z.string()).default([]) })),
   createdByRunId: z.string().optional(), createdAt: z.string(), reviewedAt: z.string().optional()
 });
 

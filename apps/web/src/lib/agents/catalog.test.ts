@@ -22,7 +22,7 @@ describe("agent catalog", () => {
     expect(getAgent("domain-analyst")?.prompt).toContain("只有上下文中原样存在的条目才能标为正式基线");
     expect(getAgent("pm-synthesizer")?.prompt).toContain("每个 item 只表达一个可独立 append 的基线断言");
     expect(getAgent("pm-synthesizer")?.prompt).toContain("同一 itemId 可以支撑多个 item");
-    expect(getAgent("pm-synthesizer")?.prompt).toContain("候选来自三位专家的结构化结论");
+    expect(getAgent("pm-synthesizer")?.prompt).toContain("专家 packet 的最终结论");
     expect(getAgent("pm-synthesizer")?.prompt).toContain("候选记忆不是本轮 proposal 的依据");
     expect(getAgent("pm-synthesizer")?.prompt).toContain("audience=服务对象");
     expect(getAgent("pm-synthesizer")?.prompt).toContain("decisions=已明确采用的取舍或规则");

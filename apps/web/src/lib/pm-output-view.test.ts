@@ -10,6 +10,14 @@ describe("readPmProposal", () => {
     });
   });
 
+  it("reads the canonical proposalItems output", () => {
+    expect(readPmProposal({ proposalTitle: "HR 初筛", proposalRationale: "整理业务场景", proposalItems: [{ itemIds: ["assertion:requirements-analyst:0"], category: "audience", content: "HR 招聘人员", selected: true }] })).toEqual({
+      title: "HR 初筛",
+      rationale: "整理业务场景",
+      items: [{ category: "audience", content: "HR 招聘人员" }]
+    });
+  });
+
   it("ignores malformed or missing PM output", () => {
     expect(readPmProposal({ answer: "只有回答" })).toBeUndefined();
     expect(readPmProposal("未知输出")).toBeUndefined();

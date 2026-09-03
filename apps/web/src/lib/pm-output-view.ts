@@ -10,6 +10,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function readPmProposal(output: unknown): PmProposalView | undefined {
   if (!isRecord(output)) return undefined;
+  if (Array.isArray(output.proposalItems)) {
+    const items = output.proposalItems.filter((item): item is { category: string; content: string } => isRecord(item) && typeof item.category === "string" && typeof item.content === "string").map((item) => ({ category: item.category, content: item.content }));
+    return items.length ? { title: typeof output.proposalTitle === "string" ? output.proposalTitle : "PM 提案整理", rationale: typeof output.proposalRationale === "string" ? output.proposalRationale : "本轮 PM 结构化整理结果", items } : undefined;
+  }
   if (Array.isArray(output.proposal)) {
     const items = output.proposal.filter((item): item is { category: string; content: string } => (
       isRecord(item) && typeof item.category === "string" && typeof item.content === "string"

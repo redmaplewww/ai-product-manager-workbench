@@ -25,7 +25,7 @@ export function normalizeAgentPacket(agentId: string, rawOutput: unknown, eviden
     summary: output.summary,
     assertions: output.assertions.map((item, index) => ({ ...item, id: `assertion:${agentId}:${index}` })),
     clarificationQuestions: output.clarificationQuestions.map((item, index) => ({ ...item, id: `question:${agentId}:${index}` })),
-    issues: output.issues.map((item, index) => ({ ...item, id: `issue:${agentId}:${index}` })),
+    issues: output.issues.map((item, index) => ({ ...item, verification: agentId === "critical-reviewer" ? item.verification || "unresolved" : null, id: `issue:${agentId}:${index}` })),
     error: null
   });
 }
