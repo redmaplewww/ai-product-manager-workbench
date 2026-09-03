@@ -36,16 +36,75 @@ export const messageSchema = z.object({
   citations: z.array(z.string()).default([]), runId: z.string().optional(), createdAt: z.string()
 });
 
-export const agentResultSchema = z.object({
+export const legacyAgentResultSchema = z.object({
   summary: z.string(),
   findings: z.array(z.string()).default([]),
   openQuestions: z.array(z.string()).default([]),
   evidenceRefs: z.array(z.string()).default([])
 });
+export const agentResultSchema = legacyAgentResultSchema;
+
+export const proposalCategorySchema = z.enum(["audience", "goals", "metrics", "scope", "nonGoals", "requirements", "risks", "decisions", "openQuestions"]);
+export const evidenceRefSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["message", "source", "memory", "baseline"]),
+  label: z.string()
+});
+export const assertionBasisSchema = z.enum(["grounded", "assumption"]);
+export const assertionOutputSchema = z.object({
+  basis: assertionBasisSchema,
+  content: z.string(),
+  evidenceIds: z.array(z.string())
+});
+export const clarificationQuestionOutputSchema = z.object({
+  content: z.string(),
+  evidenceIds: z.array(z.string())
+});
+export const reviewIssueKindSchema = z.enum(["contradiction", "unsupported", "scope_expansion", "duplicate", "missing_boundary"]);
+export const reviewIssueOutputSchema = z.object({
+  kind: reviewIssueKindSchema,
+  severity: z.enum(["blocking", "warning"]),
+  targetRefs: z.array(z.string()),
+  detail: z.string(),
+  evidenceIds: z.array(z.string())
+});
+export const agentPacketOutputSchema = z.object({
+  summary: z.string(),
+  assertions: z.array(assertionOutputSchema),
+  clarificationQuestions: z.array(clarificationQuestionOutputSchema),
+  issues: z.array(reviewIssueOutputSchema)
+});
+export const agentPacketSchema = z.object({
+  schemaVersion: z.literal(1),
+  agentId: z.string(),
+  status: z.enum(["completed", "failed"]),
+  summary: z.string(),
+  assertions: z.array(assertionOutputSchema.extend({ id: z.string() })),
+  clarificationQuestions: z.array(clarificationQuestionOutputSchema.extend({ id: z.string() })),
+  issues: z.array(reviewIssueOutputSchema.extend({ id: z.string() })),
+  error: z.string().nullable()
+});
+export const reviewResponseSchema = z.object({
+  issueId: z.string(),
+  disposition: z.enum(["surfaced", "resolved", "needs_clarification"]),
+  message: z.string()
+});
+export const pmSynthesisOutputSchema = z.object({
+  answer: z.string(),
+  reviewResponses: z.array(reviewResponseSchema),
+  proposalTitle: z.string().nullable(),
+  proposalRationale: z.string().nullable(),
+  proposalItems: z.array(z.object({
+    itemIds: z.array(z.string()).min(1).max(4),
+    category: proposalCategorySchema,
+    content: z.string(),
+    selected: z.boolean()
+  }))
+});
 
 export const agentStepSchema = z.object({
   id: z.string(), agent: z.string(), provider: z.string(), model: z.string(), status: z.enum(["queued", "running", "completed", "failed"]),
-  summary: z.string(), result: agentResultSchema.optional(), output: z.unknown().optional(), durationMs: z.number(), retries: z.number(), startedAt: z.string()
+  summary: z.string(), result: z.union([legacyAgentResultSchema, agentPacketSchema]).optional(), output: z.unknown().optional(), durationMs: z.number(), retries: z.number(), startedAt: z.string()
 });
 
 export const runSchema = z.object({
@@ -55,7 +114,7 @@ export const runSchema = z.object({
 
 export const proposalSchema = z.object({
   id: z.string(), projectId: z.string(), title: z.string(), rationale: z.string(), baseVersion: z.number(), status: z.enum(["pending", "accepted", "rejected", "stale"]),
-  changes: z.array(z.object({ path: z.string(), before: z.unknown().optional(), after: z.unknown(), selected: z.boolean().default(true) })),
+  changes: z.array(z.object({ path: z.string(), before: z.unknown().optional(), after: z.unknown(), selected: z.boolean().default(true), evidenceItemIds: z.array(z.string()).default([]) })),
   createdByRunId: z.string().optional(), createdAt: z.string(), reviewedAt: z.string().optional()
 });
 
@@ -100,6 +159,11 @@ export type Project = z.infer<typeof projectSchema>;
 export type ProductBaseline = z.infer<typeof baselineSchema>;
 export type Message = z.infer<typeof messageSchema>;
 export type AgentResult = z.infer<typeof agentResultSchema>;
+export type AgentPacket = z.infer<typeof agentPacketSchema>;
+export type AgentPacketOutput = z.infer<typeof agentPacketOutputSchema>;
+export type PmSynthesisOutput = z.infer<typeof pmSynthesisOutputSchema>;
+export type ProposalCategory = z.infer<typeof proposalCategorySchema>;
+export type EvidenceRef = z.infer<typeof evidenceRefSchema>;
 export type AgentRun = z.infer<typeof runSchema>;
 export type ChangeProposal = z.infer<typeof proposalSchema>;
 export type MemoryItem = z.infer<typeof memorySchema>;

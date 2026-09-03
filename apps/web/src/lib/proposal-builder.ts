@@ -1,5 +1,5 @@
 export type PmProposalChange = {
-  sourceIndex: number;
+  itemIds: string[];
   category: ProposalCategory;
   content: string;
   selected?: boolean;
@@ -11,7 +11,20 @@ export type PmProposal = {
   items: PmProposalChange[];
 };
 
-export type ProposalSource = { content: string };
+export type ProposalSource = {
+  id: string;
+  content: string;
+  kind: "assertion" | "clarification_question" | "issue";
+  basis?: "grounded" | "assumption";
+};
+
+export function proposalSourcesFromPackets(packets: AgentPacket[]): ProposalSource[] {
+  return packets.flatMap((packet) => [
+    ...packet.assertions.map((item) => ({ id: item.id, content: item.content, kind: "assertion" as const, basis: item.basis })),
+    ...packet.clarificationQuestions.map((item) => ({ id: item.id, content: item.content, kind: "clarification_question" as const })),
+    ...packet.issues.map((item) => ({ id: item.id, content: item.detail, kind: "issue" as const }))
+  ]);
+}
 
 export const supportedProposalPaths = [
   "/audience/-", "/goals/-", "/metrics/-", "/scope/-", "/nonGoals/-",
@@ -35,20 +48,22 @@ function comparableText(value: string) {
 export type NormalizedProposal = {
   title: string;
   rationale: string;
-  changes: Array<{ path: ProposalPath; after: string; selected: true }>;
+  changes: Array<{ path: ProposalPath; after: string; selected: true; evidenceItemIds: string[] }>;
 };
 
 export function buildProposal(sources: ProposalSource[], pmProposal?: PmProposal): NormalizedProposal | null {
   if (!sources.length || !pmProposal) return null;
 
+  const sourceById = new Map(sources.map((source) => [source.id, source]));
   const usedChanges = new Set<string>();
   const modelChanges = pmProposal.items.flatMap((change) => {
-    const source = sources[change.sourceIndex];
+    const sourcesForChange = change.itemIds.map((itemId) => sourceById.get(itemId));
     const content = change.content.trim();
     const key = `${change.category}:${comparableText(content)}`;
-    if (!source || !supportedProposalCategories.includes(change.category) || !content || change.selected === false || comparableText(source.content) === comparableText(content) || usedChanges.has(key)) return [];
+    const includesQuestion = sourcesForChange.some((source) => source?.kind === "clarification_question");
+    if (!sourcesForChange.length || sourcesForChange.some((source) => !source) || !supportedProposalCategories.includes(change.category) || !content || change.selected === false || sourcesForChange.some((source) => source?.kind === "issue" || source?.basis === "assumption") || (includesQuestion && change.category !== "openQuestions") || sourcesForChange.some((source) => source && comparableText(source.content) === comparableText(content)) || usedChanges.has(key)) return [];
     usedChanges.add(key);
-    return [{ path: categoryToPath[change.category], after: content, selected: true as const }];
+    return [{ path: categoryToPath[change.category], after: content, selected: true as const, evidenceItemIds: change.itemIds }];
   }).slice(0, 8);
 
   if (!modelChanges.length) return null;
@@ -59,3 +74,4 @@ export function buildProposal(sources: ProposalSource[], pmProposal?: PmProposal
     changes: modelChanges
   };
 }
+import type { AgentPacket } from "@pm-studio/core";

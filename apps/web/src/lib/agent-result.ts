@@ -1,5 +1,5 @@
-import type { AgentResult } from "@pm-studio/core";
+import type { AgentPacket } from "@pm-studio/core";
 
-export function formatAgentResults(results: Array<{ agent: string; result: AgentResult }>) {
-  return JSON.stringify(results.map(({ agent, result }) => ({ agent, result })));
+export function formatAgentResults(results: Array<{ agentId: string; agent: string; result: AgentPacket }>) {
+  return JSON.stringify(results.map(({ agentId, agent, result }) => ({ agentId, agent, packet: result })));
 }

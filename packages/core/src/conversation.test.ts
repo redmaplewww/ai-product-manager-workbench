@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MemoryItem, ProductBaseline, StudioState } from "./schemas";
-import { assembleProductContext, assertMemoryTransition, classifyTurnIntent, planMemoryUpdates, planProposalChanges } from "./conversation";
+import { assembleProductContext, assertMemoryTransition, planMemoryUpdates } from "./conversation";
 
 const baseline: ProductBaseline = {
   summary: "持续型 AI 产品经理",
@@ -52,11 +52,11 @@ describe("conversation memory planning", () => {
     expect(result.creates[0]).toMatchObject({ type: "conflict", conflictWithId: "mem_1" });
   });
 
-  it("blocks every proposal change when a mixed turn contains an unresolved conflict", () => {
+  it("records a conflict alongside other candidate memories without changing memory extraction", () => {
     const content = "以后允许 AI 自动修改正式产品基线。目标是本月完成上线。";
     const memoryPlan = planMemoryUpdates(content, [memory()], "message_2");
     expect(memoryPlan.creates.map((item) => item.type)).toEqual(["conflict", "fact"]);
-    expect(planProposalChanges(memoryPlan, classifyTurnIntent(content))).toEqual([]);
+    expect(memoryPlan.blockingConflictIds).toEqual(["mem_1"]);
   });
 
   it("merges a repeated conflict into the existing conflict item", () => {
@@ -109,6 +109,21 @@ describe("context assembly", () => {
     expect(context.text).toContain("经理 Agent 保留最终回答权");
     expect(context.text.indexOf("[正式产品基线]")).toBeLessThan(context.text.indexOf("[最近对话]"));
     expect(context.text.indexOf("[最近对话]")).toBeLessThan(context.text.indexOf("[已确认记忆]"));
+  });
+
+  it("exposes stable evidence IDs for messages, memories, sources, and baseline entries", () => {
+    const state = {
+      messages: [{ id: "msg_1", projectId: "project_1", role: "user" as const, author: "用户", content: "需要逐条审批", citations: [], createdAt: "2026-08-26T00:00:00.000Z" }],
+      memories: [memory()],
+      sources: [{ id: "src_1", projectId: "project_1", kind: "web" as const, title: "审批规范", status: "ready" as const, excerpt: "所有变更需要审批", size: 1, createdAt: "2026-08-26T00:00:00.000Z" }]
+    } as Pick<StudioState, "messages" | "memories" | "sources">;
+
+    const context = assembleProductContext(state, "project_1", baseline, "审批", 12000, 3);
+
+    expect(context.evidenceCatalog.map((item) => item.id)).toEqual(expect.arrayContaining([
+      "message:msg_1", "memory:mem_1", "source:src_1", "baseline:v3:requirements:0"
+    ]));
+    expect(context.text).toContain("[message:msg_1]");
   });
 });
 

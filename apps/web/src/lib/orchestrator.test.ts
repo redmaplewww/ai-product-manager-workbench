@@ -1,10 +1,12 @@
+import { planMemoryUpdates } from "@pm-studio/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { runMock, runnerConfig } = vi.hoisted(() => ({ runMock: vi.fn(), runnerConfig: {} as Record<string, unknown> }));
+const { runMock, runnerConfig, extractMemoryMock } = vi.hoisted(() => ({ runMock: vi.fn(), runnerConfig: {} as Record<string, unknown>, extractMemoryMock: vi.fn() }));
 
 // @ts-expect-error Vitest supports virtual modules at runtime.
 vi.mock("server-only", () => ({}), { virtual: true });
 vi.mock("./env", () => ({ providerBaseUrl: () => undefined }));
+vi.mock("./tools/memory-extractor", () => ({ extractMemory: extractMemoryMock }));
 vi.mock("@openai/agents", () => ({
   Agent: class {
     name: string;
@@ -18,24 +20,27 @@ vi.mock("@openai/agents", () => ({
   setDefaultModelProvider: vi.fn()
 }));
 
-import { executeTurn, normalizePmOutput, normalizeReviewOutput } from "./orchestrator";
+import { composePmAnswer, executeTurn, normalizePmOutput, normalizeReviewOutput } from "./orchestrator";
 import { createSeedState } from "./seed";
 
 describe("executeTurn integration", () => {
   beforeEach(() => {
     process.env.OPENAI_API_KEY = "test-key";
     delete process.env.DEEPSEEK_API_KEY;
-    runMock.mockImplementation(async (agent: { name: string }) => {
+    extractMemoryMock.mockImplementation(({ content, memories, sourceMessageId }) => planMemoryUpdates(content, memories, sourceMessageId));
+    runMock.mockImplementation(async (agent: { name: string }, input: string) => {
       if (agent.name === "AI 产品经理") {
         return { finalOutput: {
           answer: "已将 HR 招聘人员归入本轮候选产品范围。",
+          reviewResponses: [],
           openQuestions: [],
           proposalTitle: "HR 初筛场景",
           proposalRationale: "将本轮明确场景整理为目标用户候选变更。",
-          proposal: [{ sourceIndex: 0, category: "audience", content: "HR 招聘人员", selected: true }]
+          proposal: [{ itemIds: ["assertion:requirements-analyst:0"], category: "audience", content: "HR 招聘人员", selected: true }]
         } };
       }
-      return { finalOutput: { summary: `${agent.name}结论`, findings: ["保留结构化发现"], openQuestions: ["待确认边界"], evidenceRefs: [] } };
+      const messageId = input.match(/\[message:(msg_[^\]]+)\]/)?.[1];
+      return { finalOutput: { summary: `${agent.name}结论`, assertions: [{ basis: "grounded", content: "服务 HR 完成简历初筛", evidenceIds: messageId ? [`message:${messageId}`] : [] }], clarificationQuestions: [], issues: [] } };
     });
   });
 
@@ -44,14 +49,14 @@ describe("executeTurn integration", () => {
     const result = await executeTurn(state, "prj_pmstudio", "这个项目服务 HR 初步筛选人才简历。", "产品编辑");
 
     expect(result.proposal).toMatchObject({ title: "HR 初筛场景", rationale: "将本轮明确场景整理为目标用户候选变更。" });
-    expect(result.proposal?.changes).toEqual([{ path: "/audience/-", after: "HR 招聘人员", selected: true }]);
-    expect(result.run.steps.find((step) => step.agent === "需求分析")?.result).toMatchObject({ findings: ["保留结构化发现"], openQuestions: ["待确认边界"] });
+    expect(result.proposal?.changes).toEqual([{ path: "/audience/-", after: "HR 招聘人员", selected: true, evidenceItemIds: ["assertion:requirements-analyst:0"] }]);
+    expect(result.run.steps.find((step) => step.agent === "需求分析")?.result).toMatchObject({ assertions: [{ id: "assertion:requirements-analyst:0" }] });
     expect(result.run.steps.find((step) => step.agent === "PM 综合")?.summary).toBe("已将 HR 招聘人员归入本轮候选产品范围。");
-    expect(result.run.steps.find((step) => step.agent === "PM 综合")?.output).toMatchObject({ proposalTitle: "HR 初筛场景", proposal: [{ category: "audience" }] });
+    expect(result.run.steps.find((step) => step.agent === "PM 综合")?.output).toMatchObject({ proposalTitle: "HR 初筛场景", proposal: [{ itemIds: ["assertion:requirements-analyst:0"], category: "audience" }] });
     expect(runnerConfig).toMatchObject({ tracingDisabled: true });
     const pmInput = runMock.mock.calls.find(([agent]) => (agent as { name: string }).name === "AI 产品经理")?.[1] as string;
-    expect(pmInput).toContain('"sourceIndex":0');
-    expect(pmInput).not.toContain('"path":"/requirements/-"');
+    expect(pmInput).toContain('"id":"assertion:requirements-analyst:0"');
+    expect(pmInput).not.toContain("[记忆整理结果]");
     expect(state.memories.some((memory) => memory.content.includes("HR 初步筛选人才简历"))).toBe(true);
   });
 
@@ -63,30 +68,45 @@ describe("executeTurn integration", () => {
         rationale: "把候选事实整理为基线条目。",
         changes: [{ path: "/audience/-", after: "HR 招聘人员", selected: true }]
       }
-    }, [{ content: "HR 招聘人员" }]);
+    }, [{ id: "pc_0", content: "HR 招聘人员", kind: "assertion" }]);
 
     expect(normalized).toMatchObject({
       answer: "已完成整理。",
       proposalTitle: "HR 初筛场景",
-      proposal: [{ sourceIndex: 0, category: "audience", content: "HR 招聘人员", selected: true }]
+      proposal: [{ itemIds: ["pc_0"], category: "audience", content: "HR 招聘人员", selected: true }]
     });
   });
 
   it("accepts explicit null proposal metadata required by strict structured output", () => {
     expect(normalizePmOutput({ answer: "已回答。", proposalTitle: null, proposalRationale: null, proposal: null }, [])).toEqual({
       answer: "已回答。",
+      reviewResponses: [],
       proposalTitle: null,
       proposalRationale: null,
       proposal: null
     });
   });
 
-  it("keeps reviewer markdown out of the summary channel", () => {
-    const normalized = normalizeReviewOutput("### 可验证矛盾\n- 基线与本轮输入不一致\n### 假设\n- 用户尚未确认发送渠道\n### 需要澄清\n- 是否需要人工复核");
+  it("requires critic JSON packets and marks malformed critic output as failed", () => {
+    const normalized = normalizeReviewOutput(JSON.stringify({
+      summary: "发现约束矛盾",
+      assertions: [],
+      clarificationQuestions: [{ content: "应以哪条约束为准？", evidenceIds: ["message:msg_1"] }],
+      issues: [{ kind: "contradiction", severity: "blocking", targetRefs: ["assertion:requirements-analyst:0"], detail: "新旧约束相反", evidenceIds: ["message:msg_1"] }]
+    }), ["message:msg_1"], ["assertion:requirements-analyst:0"]);
 
-    expect(normalized.summary).not.toContain("###");
-    expect(normalized.findings).toEqual(["基线与本轮输入不一致"]);
-    expect(normalized.openQuestions).toEqual(["是否需要人工复核"]);
+    expect(normalized).toMatchObject({ status: "completed", issues: [{ id: "issue:critical-reviewer:0", kind: "contradiction" }] });
+    expect(normalizeReviewOutput("not json", [], []).status).toBe("failed");
+  });
+
+  it("requires every critic issue to become a visible PM review response", () => {
+    const critic = normalizeReviewOutput(JSON.stringify({
+      summary: "发现约束矛盾", assertions: [], clarificationQuestions: [],
+      issues: [{ kind: "contradiction", severity: "blocking", targetRefs: [], detail: "新旧约束相反", evidenceIds: [] }]
+    }), [], []);
+
+    expect(() => composePmAnswer("PM 正文", [], critic)).toThrow("UNHANDLED_CRITIC_ISSUE");
+    expect(composePmAnswer("PM 正文", [{ issueId: "issue:critical-reviewer:0", disposition: "needs_clarification", message: "发现新旧约束相反，请确认以哪条为准。" }], critic)).toContain("发现新旧约束相反");
   });
 
   it("records the PM failure reason instead of hiding it behind Demo", async () => {
@@ -101,5 +121,14 @@ describe("executeTurn integration", () => {
 
     expect(pmStep?.summary).toContain("PM_SCHEMA_FAIL");
     expect(pmStep?.output).toMatchObject({ fallbackReason: "PM_SCHEMA_FAIL" });
+  });
+
+  it("creates a proposal from expert candidates when memory extraction finds nothing", async () => {
+    extractMemoryMock.mockReturnValue({ creates: [], merges: [], blockingConflictIds: [] });
+    const state = await createSeedState();
+    const result = await executeTurn(state, "prj_pmstudio", "这个项目服务 HR 初步筛选人才简历。", "产品编辑");
+
+    expect(result.proposal?.changes).toEqual([{ path: "/audience/-", after: "HR 招聘人员", selected: true, evidenceItemIds: ["assertion:requirements-analyst:0"] }]);
+    expect(state.memories.some((memory) => memory.content.includes("HR 初步筛选人才简历"))).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import type { MemoryItem, ProductBaseline, StudioState } from "./schemas";
+import type { EvidenceRef, MemoryItem, ProductBaseline, StudioState } from "./schemas";
 
 export type TurnIntent = "question" | "correction" | "planning" | "constraint" | "decision" | "goal" | "risk" | "requirement";
 
@@ -12,11 +12,11 @@ export type MemoryUpdatePlan = {
   blockingConflictIds: string[];
 };
 
-export type ProposalChangeDraft = { path: string; after: string; selected: true };
 export type MemoryAction = "confirm" | "forget" | "correct" | "restore";
 
 export type ProductContext = {
   text: string;
+  evidenceCatalog: EvidenceRef[];
   citationIds: string[];
   counts: { recentMessages: number; confirmedMemories: number; candidateMemories: number; sources: number; conflicts: number };
 };
@@ -138,18 +138,6 @@ export function planMemoryUpdates(content: string, memories: MemoryItem[], sourc
   return { creates: creates.slice(0, 3), merges, blockingConflictIds: [...new Set(blockingConflictIds)] };
 }
 
-export function planProposalChanges(memoryPlan: MemoryUpdatePlan, intent: TurnIntent): ProposalChangeDraft[] {
-  if (memoryPlan.blockingConflictIds.length) return [];
-  return memoryPlan.creates.map((memory) => {
-    const path = memory.type === "risk" ? "/risks/-"
-      : memory.type === "decision" ? "/decisions/-"
-      : memory.type === "open_question" ? "/openQuestions/-"
-      : intent === "goal" ? "/goals/-"
-      : "/requirements/-";
-    return { path, after: memory.content, selected: true as const };
-  });
-}
-
 export function assertMemoryTransition(memory: Pick<MemoryItem, "status" | "type">, action: MemoryAction) {
   if (memory.status === "superseded") throw new Error("已被替代的记忆不能恢复或修改");
   if (action === "restore" && memory.status !== "forgotten") throw new Error("只有已遗忘记忆可以恢复");
@@ -162,16 +150,17 @@ function lines(title: string, values: string[]) {
   return `[${title}]\n${values.length ? values.map((value) => `- ${value}`).join("\n") : "- （无）"}`;
 }
 
-function baselineLines(baseline: ProductBaseline) {
+function baselineEntries(baseline: ProductBaseline, version: number): Array<EvidenceRef & { text: string }> {
+  const entry = (suffix: string, label: string, text: string) => ({ id: `baseline:v${version}:${suffix}`, kind: "baseline" as const, label, text: `[baseline:v${version}:${suffix}] ${text}` });
   return [
-    `摘要：${baseline.summary}`,
-    `问题：${baseline.problem}`,
-    ...baseline.goals.map((item) => `目标：${item}`),
-    ...baseline.scope.map((item) => `范围：${item}`),
-    ...baseline.nonGoals.map((item) => `非目标：${item}`),
-    ...baseline.requirements.map((item) => `正式需求：${item}`),
-    ...baseline.decisions.map((item) => `正式决策：${item}`),
-    ...baseline.openQuestions.map((item) => `开放问题：${item}`)
+    entry("summary", "正式基线摘要", `摘要：${baseline.summary}`),
+    entry("problem", "正式基线问题", `问题：${baseline.problem}`),
+    ...baseline.goals.map((item, index) => entry(`goals:${index}`, "正式基线目标", `目标：${item}`)),
+    ...baseline.scope.map((item, index) => entry(`scope:${index}`, "正式基线范围", `范围：${item}`)),
+    ...baseline.nonGoals.map((item, index) => entry(`nonGoals:${index}`, "正式基线非目标", `非目标：${item}`)),
+    ...baseline.requirements.map((item, index) => entry(`requirements:${index}`, "正式基线需求", `正式需求：${item}`)),
+    ...baseline.decisions.map((item, index) => entry(`decisions:${index}`, "正式基线决策", `正式决策：${item}`)),
+    ...baseline.openQuestions.map((item, index) => entry(`openQuestions:${index}`, "正式基线开放问题", `开放问题：${item}`))
   ];
 }
 
@@ -197,35 +186,47 @@ export function assembleProductContext(
   projectId: string,
   baseline: ProductBaseline,
   query: string,
-  budgetChars = 12000
+  budgetChars = 12000,
+  baselineVersion = 0
 ): ProductContext {
   const projectMemories = state.memories.filter((item) => item.projectId === projectId && item.status !== "forgotten" && item.status !== "superseded");
   const confirmed = rankByRelevance(projectMemories.filter((item) => item.status === "confirmed" && item.type !== "conflict"), query, (item) => item.content)
     .sort((left, right) => Number(["constraint", "decision"].includes(right.type)) - Number(["constraint", "decision"].includes(left.type)));
   const candidates = rankByRelevance(projectMemories.filter((item) => item.status === "candidate" && item.type !== "conflict"), query, (item) => item.content);
   const conflicts = projectMemories.filter((item) => item.type === "conflict");
-  const recent = state.messages.filter((item) => item.projectId === projectId).slice(-12).map((item) => `${item.role === "user" ? "用户" : "AI"}：${item.content}`);
+  const recentMessages = state.messages.filter((item) => item.projectId === projectId).slice(-12);
+  const recent = recentMessages.map((item) => `[message:${item.id}] ${item.role === "user" ? "用户" : "AI"}：${item.content}`);
   const sources = rankByRelevance(state.sources.filter((item) => item.projectId === projectId && item.status === "ready"), query, (item) => `${item.title} ${item.excerpt}`);
 
-  const baselineSection = lines("正式产品基线", baselineLines(baseline));
-  const confirmedSection = lines("已确认记忆", confirmed.map((item) => `${item.type}：${item.content}`));
+  const baselineEvidence = baselineEntries(baseline, baselineVersion);
+  const baselineSection = lines("正式产品基线", baselineEvidence.map((item) => item.text));
+  const confirmedSection = lines("已确认记忆", confirmed.map((item) => `[memory:${item.id}] ${item.type}：${item.content}`));
   const conflictSection = lines("未解决冲突", conflicts.map((item) => `${item.id}：${item.content}`));
   const reserved = baselineSection.length + confirmedSection.length + conflictSection.length + 80;
   const optionalBudget = Math.max(0, budgetChars - reserved);
   const selectedRecent = fit(recent, Math.floor(optionalBudget * 0.45));
-  const selectedCandidates = fit(candidates.map((item) => `${item.type}（候选、低权重）：${item.content}`), Math.floor(optionalBudget * 0.2));
-  const selectedSources = fit(sources.map((item) => `${item.id} [不可信外部资料] ${item.title}：${item.excerpt}`), Math.floor(optionalBudget * 0.35));
-  const selectedSourceIds = new Set(selectedSources.map((item) => item.split(" ")[0]));
+  const selectedCandidates = fit(candidates.map((item) => `[memory:${item.id}] ${item.type}（候选、低权重）：${item.content}`), Math.floor(optionalBudget * 0.2));
+  const selectedSources = fit(sources.map((item) => `[source:${item.id}] [不可信外部资料] ${item.title}：${item.excerpt}`), Math.floor(optionalBudget * 0.35));
+  const selectedSourceIds = new Set(sources.filter((item) => selectedSources.some((value) => value.includes(`[source:${item.id}]`))).map((item) => item.id));
+  const availableEvidence: EvidenceRef[] = [
+    ...baselineEvidence.map(({ id, kind, label }) => ({ id, kind, label })),
+    ...recentMessages.map((item) => ({ id: `message:${item.id}`, kind: "message" as const, label: `${item.role === "user" ? "用户" : "AI"}消息` })),
+    ...projectMemories.map((item) => ({ id: `memory:${item.id}`, kind: "memory" as const, label: `${item.type} 记忆` })),
+    ...sources.map((item) => ({ id: `source:${item.id}`, kind: "source" as const, label: item.title }))
+  ];
+  const text = [
+    baselineSection,
+    lines("最近对话", selectedRecent),
+    confirmedSection,
+    lines("候选记忆", selectedCandidates),
+    lines("来源片段", selectedSources),
+    conflictSection
+  ].join("\n\n");
+  const evidenceCatalog = availableEvidence.filter((item) => text.includes(`[${item.id}]`));
 
   return {
-    text: [
-      baselineSection,
-      lines("最近对话", selectedRecent),
-      confirmedSection,
-      lines("候选记忆", selectedCandidates),
-      lines("来源片段", selectedSources),
-      conflictSection
-    ].join("\n\n"),
+    text,
+    evidenceCatalog,
     citationIds: sources.filter((item) => selectedSourceIds.has(item.id)).map((item) => item.id),
     counts: {
       recentMessages: selectedRecent.length,
