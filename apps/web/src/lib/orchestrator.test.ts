@@ -20,7 +20,8 @@ vi.mock("@openai/agents", () => ({
   setDefaultModelProvider: vi.fn()
 }));
 
-import { composePmAnswer, ensureCriticIssueCoverage, executeTurn, normalizePmOutput, normalizeReviewOutput } from "./orchestrator";
+import { composePmAnswer, ensureCriticIssueCoverage, executeTurn, normalizeReviewOutput } from "./orchestrator";
+import { normalizePmOutput } from "./pm-output";
 import { createSeedState } from "./seed";
 
 describe("executeTurn integration", () => {

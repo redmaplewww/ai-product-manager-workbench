@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentPacketSchema, agentStepSchema, baselineSchema, pmProposalItemSchema, pmSynthesisOutputSchema, proposalSchema, sendMessageInputSchema } from "./schemas";
+import { agentPacketSchema, agentStepSchema, baselineSchema, pathForCategory, pathToCategory, pmProposalItemSchema, pmSynthesisOutputSchema, proposalChangeSchema, proposalSchema, sendMessageInputSchema } from "./schemas";
 
 describe("domain schemas", () => {
   it("rejects an empty message", () => expect(sendMessageInputSchema.safeParse({ content: "  " }).success).toBe(false));
@@ -45,6 +45,15 @@ describe("domain schemas", () => {
   it("uses one strict canonical PM proposal item schema", () => {
     expect(pmProposalItemSchema.safeParse({ itemIds: ["a"], category: "requirements", content: " ", selected: true }).success).toBe(false);
     expect(pmProposalItemSchema.safeParse({ itemIds: ["a"], category: "requirements", content: "系统支持审批", selected: true }).success).toBe(true);
+  });
+
+  it("derives every proposal path from its category without a second hand-written table", () => {
+    expect(pathForCategory("requirements")).toBe("/requirements/-");
+    expect(pathToCategory("/requirements/-")).toBe("requirements");
+    expect(pathToCategory("/nope/-")).toBeUndefined();
+    expect(pathToCategory("/requirements")).toBeUndefined();
+    expect(proposalChangeSchema.safeParse({ path: "/requirements/-", after: "系统保留依据" }).success).toBe(true);
+    expect(proposalChangeSchema.safeParse({ path: "/nope/-", after: "越界" }).success).toBe(false);
   });
 
   it("validates the persisted PM step output instead of treating it as unknown", () => {

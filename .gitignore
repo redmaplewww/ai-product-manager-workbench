@@ -9,4 +9,5 @@ storage/
 coverage/
 *.log
 *.tsbuildinfo
+.claude/
 .codex/

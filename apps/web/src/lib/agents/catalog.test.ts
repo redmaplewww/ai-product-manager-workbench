@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentPrompt, getAgent, getExecutableTool } from "./catalog";
+import { agentPrompt, deepSeekReviewSystemPrompt, getAgent, getExecutableTool } from "./catalog";
 
 describe("agent catalog", () => {
   it("resolves registered structured capabilities", () => {
@@ -16,6 +16,13 @@ describe("agent catalog", () => {
     const prompt = agentPrompt("requirements-analyst", ["message:msg_1"]);
     expect(prompt).toContain("grounded assertion");
     expect(prompt).toContain("message:msg_1");
+  });
+
+  it("owns the DeepSeek raw-API dialect instead of leaking it into the orchestrator", () => {
+    const prompt = deepSeekReviewSystemPrompt(["message:msg_1"]);
+    expect(prompt).toContain("JSON object");
+    expect(prompt).toContain("message:msg_1");
+    expect(prompt).toContain("targetRefs 只能使用提供的专家 Item IDs");
   });
 
   it("gives each analyst a bounded evidence and scope contract", () => {

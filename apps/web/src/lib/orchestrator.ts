@@ -14,12 +14,13 @@ import {
   type TurnIntent
 } from "@pm-studio/core";
 import { id, now } from "./ids";
-import { agentPrompt, CRITICAL_REVIEWER_ID, PM_AGENT_ID, PM_AGENT_NAME, getAgent } from "./agents/catalog";
-import { buildProposal, proposalSourcesFromPackets, type PmProposal, type ProposalSource } from "./proposal-builder";
+import { agentPrompt, deepSeekReviewSystemPrompt, CRITICAL_REVIEWER_ID, PM_AGENT_ID, PM_AGENT_NAME, requireAgent, type AgentId } from "./agents/catalog";
+import { buildProposal, proposalSourcesFromPackets } from "./proposal-builder";
+import type { ProposalSource } from "@pm-studio/core";
 import { formatAgentResults } from "./agent-result";
 import { extractMemory } from "./tools/memory-extractor";
 import { failedAgentPacket, normalizeAgentPacket, packetItemIds } from "./agent-packet";
-import { normalizePmOutput } from "./pm-output";
+import { normalizePmOutput, PM_DEFAULT_RATIONALE, PM_DEFAULT_TITLE } from "./pm-output";
 
 setDefaultModelProvider(new OpenAIProvider({
   apiKey: process.env.OPENAI_API_KEY,
@@ -59,8 +60,6 @@ export function ensureCriticIssueCoverage(expertPackets: AgentPacket[], critic: 
   return { ...critic, issues };
 }
 
-export { normalizePmOutput } from "./pm-output";
-
 export function normalizeReviewOutput(raw: string, evidenceIds: string[], targetRefs: string[]): AgentPacket {
   try {
     return normalizeAgentPacket(CRITICAL_REVIEWER_ID, JSON.parse(raw), evidenceIds, targetRefs);
@@ -82,13 +81,7 @@ type ExpertResult = {
 
 const structuredAgentIds = ["requirements-analyst", "domain-analyst", "delivery-planner"] as const;
 
-function requiredAgent(id: string) {
-  const agent = getAgent(id);
-  if (!agent) throw new Error(`AGENT_NOT_REGISTERED:${id}`);
-  return agent;
-}
-
-function localExpert(agentId: string, agent: string, content: string, intent: TurnIntent, provider = "Demo", model = "demo-structured", retries = 0): ExpertResult {
+function localExpert(agentId: AgentId, agent: string, content: string, intent: TurnIntent, provider = "Demo", model = "demo-structured", retries = 0): ExpertResult {
   const focus = content.length > 72 ? `${content.slice(0, 72)}...` : content;
   const summaries: Record<string, string> = {
     "需求分析": `识别为“${intent}”意图；核心表述是“${focus}”。已区分新增事实、操作请求和待确认内容。`,
@@ -102,7 +95,7 @@ function localExpert(agentId: string, agent: string, content: string, intent: Tu
   return { agentId, agent, provider, model, summary, result: normalizeAgentPacket(agentId, { summary, assertions: [], clarificationQuestions: [], issues: [] }, []), durationMs: 20 + agent.length * 7, retries };
 }
 
-async function openAiExpert(agentId: string, agentName: string, input: string, content: string, intent: TurnIntent, evidenceIds: string[]): Promise<ExpertResult> {
+async function openAiExpert(agentId: AgentId, agentName: string, input: string, content: string, intent: TurnIntent, evidenceIds: string[]): Promise<ExpertResult> {
   const model = process.env.OPENAI_PRIMARY_MODEL || "gpt-5.6-terra";
   const started = Date.now();
   let failureReason = "UNKNOWN_EXPERT_FAILURE";
@@ -150,8 +143,8 @@ async function deepSeekReview(input: string, content: string, intent: TurnIntent
         model,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: `${agentPrompt(CRITICAL_REVIEWER_ID)}只返回 JSON object，字段必须为 summary、assertions、clarificationQuestions、issues。批判 Agent 的 assertions 必须为空。每个 issue 必须有 kind、severity、targetRefs、detail、evidenceIds、verification；每个 clarificationQuestion 必须有 content、evidenceIds。只能使用提供的 Evidence IDs 和 targetRefs，不得编造。` },
-          { role: "user", content: `${input}\n\n[允许引用的 Evidence IDs]\n${evidenceIds.join("\n")}\n\n[允许引用的专家 Item IDs]\n${targetRefs.join("\n")}` }
+          { role: "system", content: deepSeekReviewSystemPrompt(evidenceIds) },
+          { role: "user", content: `${input}\n\n[允许引用的专家 Item IDs]\n${targetRefs.join("\n")}` }
         ]
       });
       const reviewText = response.choices[0]?.message.content || "未发现新增风险";
@@ -221,9 +214,9 @@ async function synthesizePmAnswer(
       const result = await agentRunner.run(agent, `${input}\n\n[允许引用的提案候选]\n${JSON.stringify(sources)}`);
       const output = normalizePmOutput(result.finalOutput);
       const pmProposal = output.proposalItems.length
-        ? { title: output.proposalTitle || "本轮产品基线候选变更", rationale: output.proposalRationale || "PM 已将本轮内容整理为候选变更，审批通过后才会写入正式基线。", items: output.proposalItems }
+        ? { title: output.proposalTitle || PM_DEFAULT_TITLE, rationale: output.proposalRationale || PM_DEFAULT_RATIONALE, items: output.proposalItems }
         : undefined;
-      return { answer: composePmAnswer(output.answer, output.reviewResponses, critic), status: "completed", provider: "OpenAI", model, retries: attempt, durationMs: Date.now() - started, proposal: buildProposal(sources, pmProposal as PmProposal), output };
+      return { answer: composePmAnswer(output.answer, output.reviewResponses, critic), status: "completed", provider: "OpenAI", model, retries: attempt, durationMs: Date.now() - started, proposal: buildProposal(sources, pmProposal), output };
     } catch (error) {
       fallbackReason = error instanceof Error ? error.message : String(error);
       // Retry once, then keep the turn available with a deterministic answer.
@@ -252,7 +245,7 @@ export async function executeTurn(state: StudioState, projectId: string, content
   const context = assembleProductContext(state, projectId, artifact.baseline, content, 12000, artifact.version);
   const expertInput = `${context.text}\n\n[本轮用户输入]\n${content}`;
   const expertSpecs = structuredAgentIds.map((agentId) => {
-    const agent = requiredAgent(agentId);
+    const agent = requireAgent(agentId);
     return [agentId, agent.name] as const;
   });
 

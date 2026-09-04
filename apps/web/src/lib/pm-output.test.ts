@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readPmProposal } from "./pm-output-view";
+import { readPmProposal } from "./pm-output";
 
 describe("readPmProposal", () => {
   it("reads the PM proposal from a persisted run output", () => {

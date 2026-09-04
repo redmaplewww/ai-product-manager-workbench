@@ -7,7 +7,7 @@ import type { AgentRun, ArtifactVersion, ChangeProposal, MemoryItem, Message, Mo
 import { postProjectMessage } from "@/lib/message-request";
 import { proposalChangeKey } from "@/lib/proposal-view";
 import { questionForRun } from "@/lib/run-question";
-import { readPmProposal } from "@/lib/pm-output-view";
+import { readPmProposal } from "@/lib/pm-output";
 import { PM_AGENT_NAME } from "@/lib/agents/catalog";
 
 type Snapshot = { project: Project; baseline: ArtifactVersion; messages: Message[]; proposals: ChangeProposal[]; memories: MemoryItem[]; sources: Source[]; runs: AgentRun[]; models: ModelProfile[] };

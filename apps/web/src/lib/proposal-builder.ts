@@ -1,25 +1,13 @@
-import { proposalCategories, type AgentPacket, type ProposalCategory } from "@pm-studio/core";
+import { pathForCategory, proposalCategories, type AgentPacket, type PmProposalItem, type ProposalPath, type ProposalSource } from "@pm-studio/core";
 import { comparableText } from "./text-utils";
+import { PM_DEFAULT_RATIONALE, PM_DEFAULT_TITLE } from "./pm-output";
 
-export type PmProposalChange = {
-  itemIds: string[];
-  category: ProposalCategory;
-  content: string;
-  selected?: boolean;
-};
+export type PmProposalChange = PmProposalItem;
 
 export type PmProposal = {
   title: string;
   rationale: string;
   items: PmProposalChange[];
-};
-
-export type ProposalSource = {
-  id: string;
-  content: string;
-  kind: "assertion" | "clarification_question";
-  basis?: "grounded" | "assumption";
-  evidenceIds?: string[];
 };
 
 export function proposalSourcesFromPackets(packets: AgentPacket[]): ProposalSource[] {
@@ -28,17 +16,6 @@ export function proposalSourcesFromPackets(packets: AgentPacket[]): ProposalSour
     ...packet.clarificationQuestions.map((item) => ({ id: item.id, content: item.content, kind: "clarification_question" as const, evidenceIds: item.evidenceIds }))
   ]);
 }
-
-export const supportedProposalPaths = [
-  "/audience/-", "/goals/-", "/metrics/-", "/scope/-", "/nonGoals/-",
-  "/requirements/-", "/risks/-", "/decisions/-", "/openQuestions/-"
-] as const;
-export type ProposalPath = typeof supportedProposalPaths[number];
-
-const categoryToPath: Record<ProposalCategory, ProposalPath> = {
-  audience: "/audience/-", goals: "/goals/-", metrics: "/metrics/-", scope: "/scope/-", nonGoals: "/nonGoals/-",
-  requirements: "/requirements/-", risks: "/risks/-", decisions: "/decisions/-", openQuestions: "/openQuestions/-"
-};
 
 export type NormalizedProposal = {
   title: string;
@@ -58,14 +35,14 @@ export function buildProposal(sources: ProposalSource[], pmProposal?: PmProposal
     const includesQuestion = sourcesForChange.some((source) => source?.kind === "clarification_question");
     if (!sourcesForChange.length || sourcesForChange.some((source) => !source) || !proposalCategories.includes(change.category) || !content || change.selected === false || sourcesForChange.some((source) => source?.basis === "assumption") || (includesQuestion && change.category !== "openQuestions") || sourcesForChange.some((source) => source && comparableText(source.content) === comparableText(content)) || usedChanges.has(key)) return [];
     usedChanges.add(key);
-    return [{ path: categoryToPath[change.category], after: content, selected: true as const, evidenceIds: [...new Set(sourcesForChange.flatMap((source) => source?.evidenceIds || []))] }];
+    return [{ path: pathForCategory(change.category), after: content, selected: true as const, evidenceIds: [...new Set(sourcesForChange.flatMap((source) => source?.evidenceIds || []))] }];
   }).slice(0, 8);
 
   if (!modelChanges.length) return null;
 
   return {
-    title: pmProposal.title.trim() || "本轮产品基线候选变更",
-    rationale: pmProposal.rationale.trim() || "PM 已将本轮内容整理为候选变更，审批通过后才会写入正式基线。",
+    title: pmProposal.title.trim() || PM_DEFAULT_TITLE,
+    rationale: pmProposal.rationale.trim() || PM_DEFAULT_RATIONALE,
     changes: modelChanges
   };
 }

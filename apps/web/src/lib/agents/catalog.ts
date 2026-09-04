@@ -25,12 +25,18 @@ export const CRITICAL_REVIEWER_ID = "critical-reviewer" as const;
 export const PM_AGENT_ID = "pm-synthesizer" as const;
 export const PM_AGENT_NAME = "AI 产品经理" as const;
 
-export function agentPrompt(id: string, evidenceIds: string[] = []) {
+export function agentPrompt(id: AgentId, evidenceIds: string[] = []) {
   const agent = agents.find((item) => item.id === id);
   if (!agent) throw new Error(`AGENT_NOT_REGISTERED:${id}`);
   const evidence = evidenceIds.length ? `\n[允许引用的 Evidence IDs]\n${evidenceIds.join("\n")}` : "";
   const evidenceRules = "明确区分正式基线、已确认记忆、候选记忆和不可信外部资料。grounded assertion 的 evidenceIds 必须至少引用一个允许 ID；assumption 的 evidenceIds 必须为空；不得编造 ID。";
   return `${agent.prompt}\n只返回结构化结论，不输出思维链。${evidenceRules}${agent.runtimeRules || ""}${evidence}`;
+}
+
+// DeepSeek 走原生 chat API（无 SDK outputType），这里把 critic 翻译成它能执行的 JSON 方言。
+// Evidence 不得编造由 agentPrompt 的 evidenceRules 覆盖，此处只补 JSON 字段形状与 targetRefs 约束。
+export function deepSeekReviewSystemPrompt(evidenceIds: string[] = []) {
+  return `${agentPrompt(CRITICAL_REVIEWER_ID, evidenceIds)}只返回 JSON object，字段必须为 summary、assertions、clarificationQuestions、issues。批判 Agent 的 assertions 必须为空。每个 issue 必须有 kind、severity、targetRefs、detail、evidenceIds、verification，其中 targetRefs 只能使用提供的专家 Item IDs；每个 clarificationQuestion 必须有 content、evidenceIds。`;
 }
 
 export const agents: AgentDefinition[] = [
@@ -46,8 +52,14 @@ export const tools: ToolDefinition[] = [
   { id: "memory-extractor", name: "记忆提取器", description: "从当前轮对话中提取可供后续确认的候选记忆。", enabled: true }
 ];
 
-export function getAgent(id: string) {
+export function getAgent(id: AgentId) {
   return agents.find((agent) => agent.id === id);
+}
+
+export function requireAgent(id: AgentId) {
+  const agent = getAgent(id);
+  if (!agent) throw new Error(`AGENT_NOT_REGISTERED:${id}`);
+  return agent;
 }
 
 export function getExecutableTool(id: string) {
