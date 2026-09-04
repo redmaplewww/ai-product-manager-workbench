@@ -1,7 +1,6 @@
 import "server-only";
 import OpenAI from "openai";
 import { Agent, OpenAIProvider, Runner, setDefaultModelProvider } from "@openai/agents";
-import { z } from "zod";
 import { providerBaseUrl } from "./env";
 import {
   assembleProductContext,
@@ -15,11 +14,12 @@ import {
   type TurnIntent
 } from "@pm-studio/core";
 import { id, now } from "./ids";
-import { getAgent } from "./agents/catalog";
-import { buildProposal, proposalSourcesFromPackets, supportedProposalCategories, type PmProposal, type ProposalSource } from "./proposal-builder";
+import { agentPrompt, CRITICAL_REVIEWER_ID, PM_AGENT_ID, PM_AGENT_NAME, getAgent } from "./agents/catalog";
+import { buildProposal, proposalSourcesFromPackets, type PmProposal, type ProposalSource } from "./proposal-builder";
 import { formatAgentResults } from "./agent-result";
 import { extractMemory } from "./tools/memory-extractor";
-import { failedAgentPacket, normalizeAgentPacket } from "./agent-packet";
+import { failedAgentPacket, normalizeAgentPacket, packetItemIds } from "./agent-packet";
+import { normalizePmOutput } from "./pm-output";
 
 setDefaultModelProvider(new OpenAIProvider({
   apiKey: process.env.OPENAI_API_KEY,
@@ -28,13 +28,6 @@ setDefaultModelProvider(new OpenAIProvider({
 const agentRunner = new Runner({ tracingDisabled: true });
 
 const expertOutputSchema = agentPacketOutputSchema;
-const proposalItemSchema = z.object({ itemIds: z.array(z.string().min(1)).min(1).max(4), category: z.enum(supportedProposalCategories), content: z.string().trim().min(1).max(1000), selected: z.boolean().default(true) });
-const legacyProposalChangeSchema = z.object({ path: z.string(), after: z.string(), selected: z.boolean().default(true) });
-const legacyProposalSchema = z.object({ title: z.string(), rationale: z.string(), changes: z.array(legacyProposalChangeSchema).max(8) });
-const legacyPmOutputSchema = z.object({ answer: z.string(), reviewResponses: z.array(z.object({ issueId: z.string(), disposition: z.enum(["surfaced", "resolved", "needs_clarification"]), message: z.string() })).default([]), proposalTitle: z.string().trim().min(1).max(120).nullable().default(null), proposalRationale: z.string().trim().min(1).max(600).nullable().default(null), proposal: z.union([z.array(proposalItemSchema).max(8), legacyProposalSchema]).nullable().default(null) });
-
-type NormalizedPmOutput = z.infer<typeof pmSynthesisOutputSchema>;
-
 type ReviewResponse = { issueId: string; disposition: "surfaced" | "resolved" | "needs_clarification"; message: string };
 
 export function composePmAnswer(answer: string, reviewResponses: ReviewResponse[], critic: AgentPacket) {
@@ -55,7 +48,7 @@ export function ensureCriticIssueCoverage(expertPackets: AgentPacket[], critic: 
   const missing = expertPackets.flatMap((packet) => packet.issues).filter((issue) => !covered.has(issue.id));
   if (!missing.length) return critic;
   const issues = [...critic.issues, ...missing.map((issue, index) => ({
-    id: `issue:critical-reviewer:coverage:${index}`,
+    id: `issue:${CRITICAL_REVIEWER_ID}:coverage:${index}`,
     kind: issue.kind,
     severity: issue.severity,
     targetRefs: [issue.id],
@@ -66,41 +59,13 @@ export function ensureCriticIssueCoverage(expertPackets: AgentPacket[], critic: 
   return { ...critic, issues };
 }
 
-function comparableProposalText(value: string) {
-  return value.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
-}
-
-export function normalizePmOutput(value: unknown, sources: ProposalSource[]): NormalizedPmOutput {
-  if (typeof value !== "object" || value === null) return pmSynthesisOutputSchema.parse(value);
-  const input = value as Record<string, unknown>;
-  if ("proposalItems" in input) return pmSynthesisOutputSchema.parse({
-    answer: input.answer,
-    reviewResponses: input.reviewResponses ?? [],
-    proposalTitle: input.proposalTitle ?? null,
-    proposalRationale: input.proposalRationale ?? null,
-    proposalItems: input.proposalItems ?? []
-  });
-  const output = legacyPmOutputSchema.parse(input);
-  const proposal = output.proposal;
-  if (!proposal) return { answer: output.answer, reviewResponses: output.reviewResponses, proposalTitle: output.proposalTitle, proposalRationale: output.proposalRationale, proposalItems: [] };
-  if (Array.isArray(proposal)) return { answer: output.answer, reviewResponses: output.reviewResponses, proposalTitle: output.proposalTitle, proposalRationale: output.proposalRationale, proposalItems: proposal };
-
-  const items = proposal.changes.flatMap((change) => {
-    const category = change.path.split("/")[1];
-    if (!supportedProposalCategories.includes(category as (typeof supportedProposalCategories)[number])) return [];
-    const source = sources.find((candidate) => comparableProposalText(candidate.content) === comparableProposalText(change.after));
-    if (!source) return [];
-    return [{ itemIds: [source.id], category: category as (typeof supportedProposalCategories)[number], content: change.after, selected: change.selected }];
-  });
-
-  return { answer: output.answer, reviewResponses: output.reviewResponses, proposalTitle: output.proposalTitle || proposal.title, proposalRationale: output.proposalRationale || proposal.rationale, proposalItems: items };
-}
+export { normalizePmOutput } from "./pm-output";
 
 export function normalizeReviewOutput(raw: string, evidenceIds: string[], targetRefs: string[]): AgentPacket {
   try {
-    return normalizeAgentPacket("critical-reviewer", JSON.parse(raw), evidenceIds, targetRefs);
+    return normalizeAgentPacket(CRITICAL_REVIEWER_ID, JSON.parse(raw), evidenceIds, targetRefs);
   } catch (error) {
-    return failedAgentPacket("critical-reviewer", error instanceof Error ? error.message : String(error));
+    return failedAgentPacket(CRITICAL_REVIEWER_ID, error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -137,7 +102,7 @@ function localExpert(agentId: string, agent: string, content: string, intent: Tu
   return { agentId, agent, provider, model, summary, result: normalizeAgentPacket(agentId, { summary, assertions: [], clarificationQuestions: [], issues: [] }, []), durationMs: 20 + agent.length * 7, retries };
 }
 
-async function openAiExpert(agentId: string, agentName: string, instructions: string, input: string, content: string, intent: TurnIntent, evidenceIds: string[]): Promise<ExpertResult> {
+async function openAiExpert(agentId: string, agentName: string, input: string, content: string, intent: TurnIntent, evidenceIds: string[]): Promise<ExpertResult> {
   const model = process.env.OPENAI_PRIMARY_MODEL || "gpt-5.6-terra";
   const started = Date.now();
   let failureReason = "UNKNOWN_EXPERT_FAILURE";
@@ -147,7 +112,7 @@ async function openAiExpert(agentId: string, agentName: string, instructions: st
         name: agentName,
         model,
         outputType: expertOutputSchema,
-        instructions: `${instructions}\n只返回结构化结论，不输出思维链。明确区分正式基线、已确认记忆、候选记忆和不可信外部资料。grounded assertion 的 evidenceIds 必须至少引用一个下列 ID；assumption 的 evidenceIds 必须为空；不得编造 ID。assertions 必须是本 Agent 按职责整理后的最终交付条目，不要输出思考过程。\n[允许引用的 Evidence IDs]\n${evidenceIds.join("\n")}`
+        instructions: agentPrompt(agentId, evidenceIds)
       });
       const result = await agentRunner.run(agent, input);
       const output = normalizeAgentPacket(agentId, result.finalOutput, evidenceIds);
@@ -174,7 +139,7 @@ async function openAiExpert(agentId: string, agentName: string, instructions: st
 }
 
 async function deepSeekReview(input: string, content: string, intent: TurnIntent, evidenceIds: string[], targetRefs: string[]): Promise<ExpertResult> {
-  if (!process.env.DEEPSEEK_API_KEY) return localExpert("critical-reviewer", "批判评审", content, intent, "Demo", "demo-review");
+  if (!process.env.DEEPSEEK_API_KEY) return localExpert(CRITICAL_REVIEWER_ID, "批判评审", content, intent, "Demo", "demo-review");
   const model = process.env.DEEPSEEK_REVIEW_MODEL || "deepseek-v4-pro";
   const started = Date.now();
   const client = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: providerBaseUrl("deepseek") });
@@ -185,14 +150,14 @@ async function deepSeekReview(input: string, content: string, intent: TurnIntent
         model,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: `${requiredAgent("critical-reviewer").prompt}\n只返回 JSON object，字段必须为 summary、assertions、clarificationQuestions、issues。批判 Agent 的 assertions 必须为空。每个 issue 必须有 kind、severity、targetRefs、detail、evidenceIds；每个 clarificationQuestion 必须有 content、evidenceIds。只能使用提供的 Evidence IDs 和 targetRefs，不得编造。` },
+          { role: "system", content: `${agentPrompt(CRITICAL_REVIEWER_ID)}只返回 JSON object，字段必须为 summary、assertions、clarificationQuestions、issues。批判 Agent 的 assertions 必须为空。每个 issue 必须有 kind、severity、targetRefs、detail、evidenceIds、verification；每个 clarificationQuestion 必须有 content、evidenceIds。只能使用提供的 Evidence IDs 和 targetRefs，不得编造。` },
           { role: "user", content: `${input}\n\n[允许引用的 Evidence IDs]\n${evidenceIds.join("\n")}\n\n[允许引用的专家 Item IDs]\n${targetRefs.join("\n")}` }
         ]
       });
       const reviewText = response.choices[0]?.message.content || "未发现新增风险";
       const result = normalizeReviewOutput(reviewText, evidenceIds, targetRefs);
       return {
-        agentId: "critical-reviewer", agent: "批判评审",
+        agentId: CRITICAL_REVIEWER_ID, agent: "批判评审",
         provider: "DeepSeek",
         model,
         summary: result.summary,
@@ -205,7 +170,7 @@ async function deepSeekReview(input: string, content: string, intent: TurnIntent
       // One bounded retry keeps transient provider failures recoverable.
     }
   }
-  const fallback = { ...localExpert("critical-reviewer", "批判评审", content, intent, "Demo (DeepSeek 降级)", "local-rules", 2), result: failedAgentPacket("critical-reviewer", failureReason.slice(0, 500)) };
+  const fallback = { ...localExpert(CRITICAL_REVIEWER_ID, "批判评审", content, intent, "Demo (DeepSeek 降级)", "local-rules", 2), result: failedAgentPacket(CRITICAL_REVIEWER_ID, failureReason.slice(0, 500)) };
   fallback.durationMs = Date.now() - started;
   fallback.summary = `DeepSeek 评审调用失败，已自动降级。${fallback.summary}`;
   return fallback;
@@ -248,13 +213,13 @@ async function synthesizePmAnswer(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const agent = new Agent({
-        name: requiredAgent("pm-synthesizer").name,
+        name: PM_AGENT_NAME,
         model,
         outputType: pmSynthesisOutputSchema,
-        instructions: `${requiredAgent("pm-synthesizer").prompt}\nproposalItems 只能引用给定 AgentPacket 的最终交付条目。每个数组项必须填写 itemIds；itemIds 可以引用多个条目，也可以被多个 item 复用。选择与基线一致的 category，并把内容重新组织为产品条目；不要新增专家结论之外的功能、范围或要求。`
+        instructions: agentPrompt(PM_AGENT_ID)
       });
       const result = await agentRunner.run(agent, `${input}\n\n[允许引用的提案候选]\n${JSON.stringify(sources)}`);
-      const output = normalizePmOutput(result.finalOutput, sources);
+      const output = normalizePmOutput(result.finalOutput);
       const pmProposal = output.proposalItems.length
         ? { title: output.proposalTitle || "本轮产品基线候选变更", rationale: output.proposalRationale || "PM 已将本轮内容整理为候选变更，审批通过后才会写入正式基线。", items: output.proposalItems }
         : undefined;
@@ -288,15 +253,15 @@ export async function executeTurn(state: StudioState, projectId: string, content
   const expertInput = `${context.text}\n\n[本轮用户输入]\n${content}`;
   const expertSpecs = structuredAgentIds.map((agentId) => {
     const agent = requiredAgent(agentId);
-    return [agentId, agent.name, agent.prompt] as const;
+    return [agentId, agent.name] as const;
   });
 
   const experts = demoMode
     ? expertSpecs.map(([agentId, name]) => localExpert(agentId, name, content, intent))
-    : await Promise.all(expertSpecs.map(([agentId, name, instructions]) => openAiExpert(agentId, name, instructions, expertInput, content, intent, context.evidenceCatalog.map((item) => item.id))));
+    : await Promise.all(expertSpecs.map(([agentId, name]) => openAiExpert(agentId, name, expertInput, content, intent, context.evidenceCatalog.map((item) => item.id))));
   const proposalCandidates = proposalSourcesFromPackets(experts.map((item) => item.result));
   const reviewInput = `${expertInput}\n\n[专家结构化结论]\n${formatAgentResults(experts)}`;
-  const review = await deepSeekReview(reviewInput, content, intent, context.evidenceCatalog.map((item) => item.id), experts.flatMap((item) => [...item.result.assertions.map((entry) => entry.id), ...item.result.clarificationQuestions.map((entry) => entry.id), ...item.result.issues.map((entry) => entry.id)]));
+  const review = await deepSeekReview(reviewInput, content, intent, context.evidenceCatalog.map((item) => item.id), experts.flatMap((item) => packetItemIds(item.result)));
   review.result = ensureCriticIssueCoverage(experts.map((item) => item.result), review.result);
   experts.push(review);
 
@@ -351,7 +316,7 @@ export async function executeTurn(state: StudioState, projectId: string, content
       summary: item.summary, result: item.result, durationMs: item.durationMs, retries: item.retries, startedAt: createdAt
     })),
     {
-      id: id("step"), agent: "PM 综合", provider: pm.provider, model: pm.model, status: pm.status,
+      id: id("step"), agent: PM_AGENT_NAME, provider: pm.provider, model: pm.model, status: pm.status,
       summary: `${pm.fallbackReason ? `PM 调用失败：${pm.fallbackReason}。` : ""}${pm.answer}`.slice(0, 900), output: { ...(typeof pm.output === "object" && pm.output !== null ? pm.output as Record<string, unknown> : { answer: pm.answer }), proposalCandidates },
       durationMs: pm.durationMs, retries: pm.retries, startedAt: createdAt
     },

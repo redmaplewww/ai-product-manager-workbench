@@ -5,7 +5,7 @@ describe("normalizeAgentPacket", () => {
   it("assigns stable IDs and preserves only supplied evidence IDs", () => {
     const packet = normalizeAgentPacket("requirements-analyst", {
       summary: "识别到审批约束",
-      assertions: [{ basis: "grounded", content: "系统应支持逐条审批", evidenceIds: ["message:msg_1"], proposalEligible: true }],
+      assertions: [{ basis: "grounded", content: "系统应支持逐条审批", evidenceIds: ["message:msg_1"] }],
       clarificationQuestions: [{ content: "是否需要审批理由？", evidenceIds: ["message:msg_1"] }],
       issues: []
     }, ["message:msg_1"]);

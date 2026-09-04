@@ -49,10 +49,10 @@ describe("executeTurn integration", () => {
     const result = await executeTurn(state, "prj_pmstudio", "这个项目服务 HR 初步筛选人才简历。", "产品编辑");
 
     expect(result.proposal).toMatchObject({ title: "HR 初筛场景", rationale: "将本轮明确场景整理为目标用户候选变更。" });
-    expect(result.proposal?.changes).toEqual([{ path: "/audience/-", after: "HR 招聘人员", selected: true, evidenceItemIds: ["assertion:requirements-analyst:0"], evidenceIds: ["message:msg_1"] }]);
+    expect(result.proposal?.changes).toEqual([{ path: "/audience/-", after: "HR 招聘人员", selected: true, evidenceIds: ["message:msg_1"] }]);
     expect(result.run.steps.find((step) => step.agent === "需求分析")?.result).toMatchObject({ assertions: [{ id: "assertion:requirements-analyst:0" }] });
-    expect(result.run.steps.find((step) => step.agent === "PM 综合")?.summary).toBe("已将 HR 招聘人员归入本轮候选产品范围。");
-    expect(result.run.steps.find((step) => step.agent === "PM 综合")?.output).toMatchObject({ proposalTitle: "HR 初筛场景", proposalItems: [{ itemIds: ["assertion:requirements-analyst:0"], category: "audience" }] });
+    expect(result.run.steps.find((step) => step.agent === "AI 产品经理")?.summary).toBe("已将 HR 招聘人员归入本轮候选产品范围。");
+    expect(result.run.steps.find((step) => step.agent === "AI 产品经理")?.output).toMatchObject({ proposalTitle: "HR 初筛场景", proposalItems: [{ itemIds: ["assertion:requirements-analyst:0"], category: "audience" }] });
     expect(runnerConfig).toMatchObject({ tracingDisabled: true });
     const pmInput = runMock.mock.calls.find(([agent]) => (agent as { name: string }).name === "AI 产品经理")?.[1] as string;
     expect(pmInput).toContain('"id":"assertion:requirements-analyst:0"');
@@ -61,15 +61,14 @@ describe("executeTurn integration", () => {
     expect(state.memories.some((memory) => memory.content.includes("HR 初步筛选人才简历"))).toBe(true);
   });
 
-  it("normalizes a legacy PM proposal object without downgrading the whole PM step", () => {
+  it("normalizes the canonical PM proposal output", () => {
     const normalized = normalizePmOutput({
       answer: "已完成整理。",
-      proposal: {
-        title: "HR 初筛场景",
-        rationale: "把候选事实整理为基线条目。",
-        changes: [{ path: "/audience/-", after: "HR 招聘人员", selected: true }]
-      }
-    }, [{ id: "pc_0", content: "HR 招聘人员", kind: "assertion" }]);
+      reviewResponses: [],
+      proposalTitle: "HR 初筛场景",
+      proposalRationale: "把候选事实整理为基线条目。",
+      proposalItems: [{ itemIds: ["pc_0"], category: "audience", content: "HR 招聘人员", selected: true }]
+    });
 
     expect(normalized).toMatchObject({
       answer: "已完成整理。",
@@ -79,7 +78,7 @@ describe("executeTurn integration", () => {
   });
 
   it("accepts explicit null proposal metadata required by strict structured output", () => {
-    expect(normalizePmOutput({ answer: "已回答。", proposalTitle: null, proposalRationale: null, proposal: null }, [])).toEqual({
+    expect(normalizePmOutput({ answer: "已回答。", reviewResponses: [], proposalTitle: null, proposalRationale: null, proposalItems: [] })).toEqual({
       answer: "已回答。",
       reviewResponses: [],
       proposalTitle: null,
@@ -89,7 +88,7 @@ describe("executeTurn integration", () => {
   });
 
   it("normalizes the canonical proposalItems field", () => {
-    expect(normalizePmOutput({ answer: "已回答。", reviewResponses: [], proposalTitle: "整理", proposalRationale: "候选", proposalItems: [{ itemIds: ["pc_0"], category: "requirements", content: "系统必须支持审批", selected: true }] }, [{ id: "pc_0", content: "支持审批", kind: "assertion" }])).toMatchObject({
+    expect(normalizePmOutput({ answer: "已回答。", reviewResponses: [], proposalTitle: "整理", proposalRationale: "候选", proposalItems: [{ itemIds: ["pc_0"], category: "requirements", content: "系统必须支持审批", selected: true }] })).toMatchObject({
       proposalItems: [{ itemIds: ["pc_0"], category: "requirements" }]
     });
   });
@@ -131,7 +130,7 @@ describe("executeTurn integration", () => {
 
     const state = await createSeedState();
     const result = await executeTurn(state, "prj_pmstudio", "这个项目服务 HR 初步筛选人才简历。", "产品编辑");
-    const pmStep = result.run.steps.find((step) => step.agent === "PM 综合");
+    const pmStep = result.run.steps.find((step) => step.agent === "AI 产品经理");
 
     expect(pmStep?.summary).toContain("PM_SCHEMA_FAIL");
     expect(pmStep?.output).toMatchObject({ fallbackReason: "PM_SCHEMA_FAIL" });
@@ -143,7 +142,7 @@ describe("executeTurn integration", () => {
     const state = await createSeedState();
     const result = await executeTurn(state, "prj_pmstudio", "这个项目服务 HR 初步筛选人才简历。", "产品编辑");
 
-    expect(result.proposal?.changes).toEqual([{ path: "/audience/-", after: "HR 招聘人员", selected: true, evidenceItemIds: ["assertion:requirements-analyst:0"], evidenceIds: ["message:msg_1"] }]);
+    expect(result.proposal?.changes).toEqual([{ path: "/audience/-", after: "HR 招聘人员", selected: true, evidenceIds: ["message:msg_1"] }]);
     expect(state.memories.some((memory) => memory.content.includes("HR 初步筛选人才简历"))).toBe(false);
   });
 });

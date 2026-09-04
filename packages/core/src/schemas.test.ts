@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentPacketSchema, agentStepSchema, baselineSchema, pmSynthesisOutputSchema, proposalSchema, sendMessageInputSchema } from "./schemas";
+import { agentPacketSchema, agentStepSchema, baselineSchema, pmProposalItemSchema, pmSynthesisOutputSchema, proposalSchema, sendMessageInputSchema } from "./schemas";
 
 describe("domain schemas", () => {
   it("rejects an empty message", () => expect(sendMessageInputSchema.safeParse({ content: "  " }).success).toBe(false));
@@ -7,7 +7,7 @@ describe("domain schemas", () => {
     expect(baselineSchema.safeParse({ summary: "x" }).success).toBe(false);
   });
 
-  it("accepts an evidence-backed agent packet and keeps legacy results readable", () => {
+  it("accepts an evidence-backed agent packet and preserves it on step readback", () => {
     expect(agentPacketSchema.safeParse({
       schemaVersion: 1,
       agentId: "requirements-analyst",
@@ -17,11 +17,6 @@ describe("domain schemas", () => {
       clarificationQuestions: [],
       issues: [{ id: "issue:requirements-analyst:0", kind: "missing_boundary", severity: "warning", targetRefs: [], detail: "边界未明确", evidenceIds: ["message:msg_1"], verification: null }],
       error: null
-    }).success).toBe(true);
-
-    expect(agentStepSchema.safeParse({
-      id: "step_1", agent: "需求分析", provider: "OpenAI", model: "test", status: "completed", summary: "旧记录",
-      result: { summary: "旧记录", findings: ["旧 finding"], openQuestions: [], evidenceRefs: [] }, durationMs: 1, retries: 0, startedAt: "2026-09-02T00:00:00.000Z"
     }).success).toBe(true);
 
     const parsed = agentStepSchema.parse({
@@ -44,8 +39,20 @@ describe("domain schemas", () => {
       id: "prop_1", projectId: "prj_1", title: "测试", rationale: "测试", baseVersion: 1, status: "pending",
       changes: [{ path: "/requirements/-", after: "系统保留依据" }], createdAt: "2026-09-02T00:00:00.000Z"
     });
-    expect(proposal.changes[0].evidenceItemIds).toEqual([]);
     expect(proposal.changes[0].evidenceIds).toEqual([]);
+  });
+
+  it("uses one strict canonical PM proposal item schema", () => {
+    expect(pmProposalItemSchema.safeParse({ itemIds: ["a"], category: "requirements", content: " ", selected: true }).success).toBe(false);
+    expect(pmProposalItemSchema.safeParse({ itemIds: ["a"], category: "requirements", content: "系统支持审批", selected: true }).success).toBe(true);
+  });
+
+  it("validates the persisted PM step output instead of treating it as unknown", () => {
+    expect(agentStepSchema.safeParse({
+      id: "step_pm", agent: "AI 产品经理", provider: "OpenAI", model: "test", status: "completed", summary: "x",
+      output: { answer: "已回答", proposalTitle: null, proposalRationale: null, proposalItems: [], reviewResponses: [], proposalCandidates: [] }, durationMs: 1, retries: 0, startedAt: "2026-09-02T00:00:00.000Z"
+    }).success).toBe(true);
+    expect(agentStepSchema.safeParse({ id: "step_pm", agent: "AI 产品经理", provider: "OpenAI", model: "test", status: "completed", summary: "x", output: { unexpected: 1 }, durationMs: 1, retries: 0, startedAt: "2026-09-02T00:00:00.000Z" }).success).toBe(false);
   });
 
   it("keeps packet shape permissive while enforcing failure state consistency", () => {

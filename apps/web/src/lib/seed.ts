@@ -44,11 +44,11 @@ export async function createSeedState(): Promise<StudioState> {
     runs: [{ id: "run_seed", projectId: "prj_pmstudio", status: "completed", costUsd: 0.018, durationMs: 6840, demoMode: true, createdAt: "2026-08-26T10:00:01.000Z", completedAt: "2026-08-26T10:00:08.000Z", steps: [
       { id: "step_1", agent: "需求分析", provider: "OpenAI", model: "gpt-5.6-terra", status: "completed", summary: "识别持续记忆和审批边界", durationMs: 2140, retries: 0, startedAt: "2026-08-26T10:00:01.000Z" },
       { id: "step_2", agent: "批判评审", provider: "DeepSeek", model: "deepseek-v4-pro", status: "completed", summary: "发现候选记忆污染正式基线的风险", durationMs: 2810, retries: 0, startedAt: "2026-08-26T10:00:03.000Z" },
-      { id: "step_3", agent: "PM 综合", provider: "OpenAI", model: "gpt-5.6-terra", status: "completed", summary: "形成分层记忆建议与澄清问题", durationMs: 1890, retries: 0, startedAt: "2026-08-26T10:00:06.000Z" }
+      { id: "step_3", agent: "AI 产品经理", provider: "OpenAI", model: "gpt-5.6-terra", status: "completed", summary: "形成分层记忆建议与澄清问题", durationMs: 1890, retries: 0, startedAt: "2026-08-26T10:00:06.000Z" }
     ] }],
     proposals: [{ id: "prop_seed", projectId: "prj_pmstudio", title: "补充候选记忆使用规则", rationale: "防止未确认信息直接改变正式规划", baseVersion: 3, status: "pending", createdByRunId: "run_seed", createdAt: "2026-08-26T10:01:00.000Z", changes: [
-      { path: "/requirements/-", after: "候选记忆可以低权重参与讨论，但不能直接驱动正式资产", selected: true, evidenceItemIds: [], evidenceIds: [] },
-      { path: "/risks/-", after: "候选记忆被重复引用后可能形成错误共识", selected: true, evidenceItemIds: [], evidenceIds: [] }
+      { path: "/requirements/-", after: "候选记忆可以低权重参与讨论，但不能直接驱动正式资产", selected: true, evidenceIds: [] },
+      { path: "/risks/-", after: "候选记忆被重复引用后可能形成错误共识", selected: true, evidenceIds: [] }
     ] }],
     memories: [
       { id: "mem_1", projectId: "prj_pmstudio", type: "constraint", content: "AI 不能自动修改正式产品基线", confidence: 1, status: "confirmed", sourceMessageIds: ["msg_1"], createdAt, updatedAt: createdAt },

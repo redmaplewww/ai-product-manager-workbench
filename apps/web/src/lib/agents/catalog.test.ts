@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAgent, getExecutableTool } from "./catalog";
+import { agentPrompt, getAgent, getExecutableTool } from "./catalog";
 
 describe("agent catalog", () => {
   it("resolves registered structured capabilities", () => {
@@ -10,6 +10,12 @@ describe("agent catalog", () => {
   it("does not expose an unimplemented tool as executable", () => {
     expect(getExecutableTool("source-search")).toBeUndefined();
     expect(getExecutableTool("memory-extractor")?.name).toBe("记忆提取器");
+  });
+
+  it("builds the complete runtime prompt at the catalog boundary", () => {
+    const prompt = agentPrompt("requirements-analyst", ["message:msg_1"]);
+    expect(prompt).toContain("grounded assertion");
+    expect(prompt).toContain("message:msg_1");
   });
 
   it("gives each analyst a bounded evidence and scope contract", () => {

@@ -1,3 +1,6 @@
+import { proposalCategories, type AgentPacket, type ProposalCategory } from "@pm-studio/core";
+import { comparableText } from "./text-utils";
+
 export type PmProposalChange = {
   itemIds: string[];
   category: ProposalCategory;
@@ -31,24 +34,16 @@ export const supportedProposalPaths = [
   "/requirements/-", "/risks/-", "/decisions/-", "/openQuestions/-"
 ] as const;
 export type ProposalPath = typeof supportedProposalPaths[number];
-export const supportedProposalCategories = [
-  "audience", "goals", "metrics", "scope", "nonGoals", "requirements", "risks", "decisions", "openQuestions"
-] as const;
-export type ProposalCategory = typeof supportedProposalCategories[number];
 
 const categoryToPath: Record<ProposalCategory, ProposalPath> = {
   audience: "/audience/-", goals: "/goals/-", metrics: "/metrics/-", scope: "/scope/-", nonGoals: "/nonGoals/-",
   requirements: "/requirements/-", risks: "/risks/-", decisions: "/decisions/-", openQuestions: "/openQuestions/-"
 };
 
-function comparableText(value: string) {
-  return value.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
-}
-
 export type NormalizedProposal = {
   title: string;
   rationale: string;
-  changes: Array<{ path: ProposalPath; after: string; selected: true; evidenceItemIds: string[]; evidenceIds: string[] }>;
+  changes: Array<{ path: ProposalPath; after: string; selected: true; evidenceIds: string[] }>;
 };
 
 export function buildProposal(sources: ProposalSource[], pmProposal?: PmProposal): NormalizedProposal | null {
@@ -61,9 +56,9 @@ export function buildProposal(sources: ProposalSource[], pmProposal?: PmProposal
     const content = change.content.trim();
     const key = `${change.category}:${comparableText(content)}`;
     const includesQuestion = sourcesForChange.some((source) => source?.kind === "clarification_question");
-    if (!sourcesForChange.length || sourcesForChange.some((source) => !source) || !supportedProposalCategories.includes(change.category) || !content || change.selected === false || sourcesForChange.some((source) => source?.basis === "assumption") || (includesQuestion && change.category !== "openQuestions") || sourcesForChange.some((source) => source && comparableText(source.content) === comparableText(content)) || usedChanges.has(key)) return [];
+    if (!sourcesForChange.length || sourcesForChange.some((source) => !source) || !proposalCategories.includes(change.category) || !content || change.selected === false || sourcesForChange.some((source) => source?.basis === "assumption") || (includesQuestion && change.category !== "openQuestions") || sourcesForChange.some((source) => source && comparableText(source.content) === comparableText(content)) || usedChanges.has(key)) return [];
     usedChanges.add(key);
-    return [{ path: categoryToPath[change.category], after: content, selected: true as const, evidenceItemIds: change.itemIds, evidenceIds: [...new Set(sourcesForChange.flatMap((source) => source?.evidenceIds || []))] }];
+    return [{ path: categoryToPath[change.category], after: content, selected: true as const, evidenceIds: [...new Set(sourcesForChange.flatMap((source) => source?.evidenceIds || []))] }];
   }).slice(0, 8);
 
   if (!modelChanges.length) return null;
@@ -74,4 +69,3 @@ export function buildProposal(sources: ProposalSource[], pmProposal?: PmProposal
     changes: modelChanges
   };
 }
-import type { AgentPacket } from "@pm-studio/core";

@@ -1,4 +1,5 @@
 import { agentPacketOutputSchema, agentPacketSchema, type AgentPacket, type AgentPacketOutput } from "@pm-studio/core";
+import { CRITICAL_REVIEWER_ID } from "./agents/catalog";
 
 function assertKnownIds(ids: string[], allowed: Set<string>, errorCode: string) {
   if (ids.some((id) => !allowed.has(id))) throw new Error(errorCode);
@@ -25,7 +26,7 @@ export function normalizeAgentPacket(agentId: string, rawOutput: unknown, eviden
     summary: output.summary,
     assertions: output.assertions.map((item, index) => ({ ...item, id: `assertion:${agentId}:${index}` })),
     clarificationQuestions: output.clarificationQuestions.map((item, index) => ({ ...item, id: `question:${agentId}:${index}` })),
-    issues: output.issues.map((item, index) => ({ ...item, verification: agentId === "critical-reviewer" ? item.verification || "unresolved" : null, id: `issue:${agentId}:${index}` })),
+    issues: output.issues.map((item, index) => ({ ...item, verification: agentId === CRITICAL_REVIEWER_ID ? item.verification || "unresolved" : null, id: `issue:${agentId}:${index}` })),
     error: null
   });
 }
@@ -41,4 +42,12 @@ export function failedAgentPacket(agentId: string, message: string): AgentPacket
     issues: [],
     error: message
   });
+}
+
+export function packetItemIds(packet: Pick<AgentPacket, "assertions" | "clarificationQuestions" | "issues">) {
+  return [
+    ...packet.assertions.map((item) => item.id),
+    ...packet.clarificationQuestions.map((item) => item.id),
+    ...packet.issues.map((item) => item.id)
+  ];
 }
