@@ -36,9 +36,108 @@ export const messageSchema = z.object({
   citations: z.array(z.string()).default([]), runId: z.string().optional(), createdAt: z.string()
 });
 
+export const proposalCategories = ["audience", "goals", "metrics", "scope", "nonGoals", "requirements", "risks", "decisions", "openQuestions"] as const;
+export const proposalCategorySchema = z.enum(proposalCategories);
+
+// 全部分支统一为数组 append 语义：path 恒为 `/${category}/-`，由分类直接派生，不维护第二份手写表。
+// 若将来出现非 append 路径（如 replace 语义），此派生失效，需停下来重审。
+export type ProposalPath = `/${z.infer<typeof proposalCategorySchema>}/-`;
+export const supportedProposalPaths: readonly ProposalPath[] = proposalCategories.map(
+  (category): ProposalPath => `/${category}/-`
+);
+export function pathForCategory(category: z.infer<typeof proposalCategorySchema>): ProposalPath {
+  return `/${category}/-`;
+}
+export function pathToCategory(path: string): z.infer<typeof proposalCategorySchema> | undefined {
+  if (!path.startsWith("/") || !path.endsWith("/-")) return undefined;
+  const category = path.slice(1, -2);
+  return (proposalCategories as readonly string[]).includes(category)
+    ? category as z.infer<typeof proposalCategorySchema>
+    : undefined;
+}
+export const evidenceRefSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["message", "source", "memory", "baseline"]),
+  label: z.string()
+});
+export const assertionBasisSchema = z.enum(["grounded", "assumption"]);
+export const assertionOutputSchema = z.object({
+  basis: assertionBasisSchema,
+  content: z.string(),
+  evidenceIds: z.array(z.string())
+});
+export const clarificationQuestionOutputSchema = z.object({
+  content: z.string(),
+  evidenceIds: z.array(z.string())
+});
+export const reviewIssueKindSchema = z.enum(["contradiction", "unsupported", "scope_expansion", "duplicate", "missing_boundary"]);
+export const reviewIssueOutputSchema = z.object({
+  kind: reviewIssueKindSchema,
+  severity: z.enum(["blocking", "warning"]),
+  targetRefs: z.array(z.string()),
+  detail: z.string(),
+  evidenceIds: z.array(z.string()),
+  verification: z.enum(["confirmed", "rejected", "unresolved"]).nullable().default(null)
+});
+export const agentPacketOutputSchema = z.object({
+  summary: z.string(),
+  assertions: z.array(assertionOutputSchema),
+  clarificationQuestions: z.array(clarificationQuestionOutputSchema),
+  issues: z.array(reviewIssueOutputSchema)
+});
+export const agentPacketSchema = z.object({
+  schemaVersion: z.literal(1),
+  agentId: z.string(),
+  status: z.enum(["completed", "failed"]),
+  summary: z.string(),
+  assertions: z.array(assertionOutputSchema.extend({ id: z.string() })),
+  clarificationQuestions: z.array(clarificationQuestionOutputSchema.extend({ id: z.string() })),
+  issues: z.array(reviewIssueOutputSchema.extend({ id: z.string() })),
+  error: z.string().nullable()
+}).superRefine((packet, ctx) => {
+  if (packet.status === "completed" && packet.error !== null) ctx.addIssue({ code: "custom", path: ["error"], message: "completed packet cannot contain an error" });
+  if (packet.status === "failed" && packet.error === null) ctx.addIssue({ code: "custom", path: ["error"], message: "failed packet requires an error" });
+});
+export const reviewResponseSchema = z.object({
+  issueId: z.string(),
+  disposition: z.enum(["surfaced", "resolved", "needs_clarification"]),
+  message: z.string()
+});
+export const pmProposalItemSchema = z.object({
+  itemIds: z.array(z.string().min(1)).min(1).max(4),
+  category: proposalCategorySchema,
+  content: z.string().trim().min(1).max(1000),
+  selected: z.boolean().default(true)
+});
+export const pmSynthesisOutputSchema = z.object({
+  answer: z.string(),
+  reviewResponses: z.array(reviewResponseSchema),
+  proposalTitle: z.string().nullable(),
+  proposalRationale: z.string().nullable(),
+  proposalItems: z.array(pmProposalItemSchema)
+});
+export const proposalSourceSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  kind: z.enum(["assertion", "clarification_question"]),
+  basis: assertionBasisSchema.optional(),
+  evidenceIds: z.array(z.string()).optional()
+});
+export const proposalChangeSchema = z.object({
+  path: z.string().refine((value): value is ProposalPath => pathToCategory(value) !== undefined, "UNKNOWN_PROPOSAL_PATH"),
+  before: z.unknown().optional(),
+  after: z.string(),
+  selected: z.boolean().default(true),
+  evidenceIds: z.array(z.string()).default([])
+});
+export const agentStepOutputSchema = pmSynthesisOutputSchema.partial().extend({
+  fallbackReason: z.string().optional(),
+  proposalCandidates: z.array(proposalSourceSchema).optional()
+}).strict();
+
 export const agentStepSchema = z.object({
   id: z.string(), agent: z.string(), provider: z.string(), model: z.string(), status: z.enum(["queued", "running", "completed", "failed"]),
-  summary: z.string(), durationMs: z.number(), retries: z.number(), startedAt: z.string()
+  summary: z.string(), result: agentPacketSchema.optional(), output: agentStepOutputSchema.optional(), durationMs: z.number(), retries: z.number(), startedAt: z.string()
 });
 
 export const runSchema = z.object({
@@ -48,7 +147,7 @@ export const runSchema = z.object({
 
 export const proposalSchema = z.object({
   id: z.string(), projectId: z.string(), title: z.string(), rationale: z.string(), baseVersion: z.number(), status: z.enum(["pending", "accepted", "rejected", "stale"]),
-  changes: z.array(z.object({ path: z.string(), before: z.unknown().optional(), after: z.unknown(), selected: z.boolean().default(true) })),
+  changes: z.array(proposalChangeSchema),
   createdByRunId: z.string().optional(), createdAt: z.string(), reviewedAt: z.string().optional()
 });
 
@@ -92,6 +191,16 @@ export type StudioState = z.infer<typeof studioStateSchema>;
 export type Project = z.infer<typeof projectSchema>;
 export type ProductBaseline = z.infer<typeof baselineSchema>;
 export type Message = z.infer<typeof messageSchema>;
+export type AgentPacket = z.infer<typeof agentPacketSchema>;
+export type AgentPacketOutput = z.infer<typeof agentPacketOutputSchema>;
+export type PmSynthesisOutput = z.infer<typeof pmSynthesisOutputSchema>;
+export type PmProposalItem = z.infer<typeof pmProposalItemSchema>;
+export type ProposalSource = z.infer<typeof proposalSourceSchema>;
+export type ProposalChange = z.infer<typeof proposalChangeSchema>;
+export type ProposalCategory = z.infer<typeof proposalCategorySchema>;
+export type EvidenceRef = z.infer<typeof evidenceRefSchema>;
+export type ArtifactVersion = z.infer<typeof artifactVersionSchema>;
+export type ModelProfile = z.infer<typeof modelProfileSchema>;
 export type AgentRun = z.infer<typeof runSchema>;
 export type ChangeProposal = z.infer<typeof proposalSchema>;
 export type MemoryItem = z.infer<typeof memorySchema>;

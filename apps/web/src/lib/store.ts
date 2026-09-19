@@ -3,16 +3,34 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { studioStateSchema, type StudioState } from "@pm-studio/core";
 import { createSeedState } from "./seed";
+import { isProviderConfigured } from "./env";
 
 const dataDir = path.resolve(process.cwd(), "../../data");
 const dataFile = path.join(dataDir, "studio.json");
 let queue = Promise.resolve();
 
+export function shouldBootstrapState(error: unknown) {
+  return (error as NodeJS.ErrnoException)?.code === "ENOENT";
+}
+
+function applyRuntimeModelConfiguration(state: StudioState) {
+  state.models = state.models.map((model) => {
+    if (model.provider === "openai" || model.provider === "deepseek") {
+      return { ...model, configured: isProviderConfigured(model.provider) };
+    }
+    return model;
+  });
+  return state;
+}
+
 async function load(): Promise<StudioState> {
   try {
-    return studioStateSchema.parse(JSON.parse(await readFile(dataFile, "utf8")));
+    return applyRuntimeModelConfiguration(studioStateSchema.parse(JSON.parse(await readFile(dataFile, "utf8"))));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn("Rebuilding invalid local state", error);
+    if (!shouldBootstrapState(error)) {
+      console.error("Invalid local state; refusing to overwrite it", error);
+      throw error;
+    }
     const state = await createSeedState();
     await persist(state);
     return state;

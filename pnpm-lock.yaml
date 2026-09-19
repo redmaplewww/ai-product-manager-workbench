@@ -10,6 +10,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@next/env':
+        specifier: 16.3.3
+        version: 16.3.3
       '@node-rs/argon2':
         specifier: ^2.0.2
         version: 2.1.0

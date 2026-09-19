@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { pathToCategory } from "@pm-studio/core";
 import { requireRole } from "@/lib/auth";
 import { apiError } from "@/lib/http";
 import { updateState } from "@/lib/store";
@@ -10,7 +11,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   try {
     assertSameOrigin(request);
     const user = await requireRole(["admin", "editor"]);
-    const input = z.object({ action: z.enum(["accept", "reject"]), selectedPaths: z.array(z.string()).optional() }).parse(await request.json());
+    const input = z.object({ action: z.enum(["accept", "reject"]), selectedPaths: z.array(z.string()).max(8).optional() }).parse(await request.json());
     const { id: proposalId } = await context.params;
     const result = await updateState((state) => {
       const proposal = state.proposals.find((item) => item.id === proposalId);
@@ -41,7 +42,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       const baseline = structuredClone(current.baseline);
       for (const change of proposal.changes) {
         if (input.selectedPaths && !input.selectedPaths.includes(change.path)) continue;
-        const key = change.path.split("/")[1] as keyof typeof baseline;
+        const key = pathToCategory(change.path);
+        if (!key) continue;
         const target = baseline[key];
         if (Array.isArray(target)) (target as unknown[]).push(change.after);
         else if (typeof change.after === "string") (baseline as unknown as Record<string, unknown>)[key] = change.after;
