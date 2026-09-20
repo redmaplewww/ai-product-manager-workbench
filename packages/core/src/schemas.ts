@@ -157,8 +157,15 @@ export const memorySchema = z.object({
 });
 
 export const sourceSchema = z.object({
-  id: z.string(), projectId: z.string(), kind: z.enum(["file", "web"]), title: z.string(), url: z.string().optional(), mimeType: z.string().optional(),
-  status: z.enum(["processing", "ready", "failed"]), excerpt: z.string(), size: z.number(), createdAt: z.string()
+  id: z.string(), projectId: z.string(), kind: z.enum(["file", "web", "document", "conversation"]), title: z.string(), url: z.string().optional(), mimeType: z.string().optional(),
+  status: z.enum(["processing", "ready", "failed"]), excerpt: z.string(), size: z.number(), charCount: z.number().optional(),
+  content: z.string().optional(), createdAt: z.string()
+});
+
+export const sourceTextImportSchema = z.object({
+  mode: z.enum(["document", "conversation"]),
+  title: z.string().trim().min(1, "请填写标题").max(160),
+  content: z.string().trim().min(1, "内容不能为空").max(400000, "单次导入不超过 40 万字，请拆分后导入")
 });
 
 export const modelProfileSchema = z.object({

@@ -242,7 +242,7 @@ export async function executeTurn(state: StudioState, projectId: string, content
   state.runs.unshift(run);
   const started = Date.now();
   const intent = classifyTurnIntent(content);
-  const context = assembleProductContext(state, projectId, artifact.baseline, content, 12000, artifact.version);
+  const context = assembleProductContext(state, projectId, artifact.baseline, content, 24000, artifact.version);
   const expertInput = `${context.text}\n\n[本轮用户输入]\n${content}`;
   const expertSpecs = structuredAgentIds.map((agentId) => {
     const agent = requireAgent(agentId);

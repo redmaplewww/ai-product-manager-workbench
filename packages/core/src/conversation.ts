@@ -196,7 +196,7 @@ export function assembleProductContext(
   const conflicts = projectMemories.filter((item) => item.type === "conflict");
   const recentMessages = state.messages.filter((item) => item.projectId === projectId).slice(-12);
   const recent = recentMessages.map((item) => `[message:${item.id}] ${item.role === "user" ? "用户" : "AI"}：${item.content}`);
-  const sources = rankByRelevance(state.sources.filter((item) => item.projectId === projectId && item.status === "ready"), query, (item) => `${item.title} ${item.excerpt}`);
+  const sources = rankByRelevance(state.sources.filter((item) => item.projectId === projectId && item.status === "ready"), query, (item) => `${item.title} ${item.content || item.excerpt}`);
 
   const baselineEvidence = baselineEntries(baseline, baselineVersion);
   const baselineSection = lines("正式产品基线", baselineEvidence.map((item) => item.text));
@@ -204,9 +204,15 @@ export function assembleProductContext(
   const conflictSection = lines("未解决冲突", conflicts.map((item) => `${item.id}：${item.content}`));
   const reserved = baselineSection.length + confirmedSection.length + conflictSection.length + 80;
   const optionalBudget = Math.max(0, budgetChars - reserved);
-  const selectedRecent = fit(recent, Math.floor(optionalBudget * 0.45));
-  const selectedCandidates = fit(candidates.map((item) => `[memory:${item.id}] ${item.type}（候选、低权重）：${item.content}`), Math.floor(optionalBudget * 0.2));
-  const selectedSources = fit(sources.map((item) => `[source:${item.id}] [不可信外部资料] ${item.title}：${item.excerpt}`), Math.floor(optionalBudget * 0.35));
+  const perSourceCap = 6000;
+  const sourceLines = sources.map((item) => {
+    const body = (item.content && item.content.trim()) || item.excerpt;
+    const capped = body.length > perSourceCap ? `${body.slice(0, perSourceCap)}…[材料较长已截断，全文 ${body.length} 字]` : body;
+    return `[source:${item.id}] [不可信外部资料] ${item.title}${item.charCount ? `（全文约 ${item.charCount} 字）` : ""}：\n${capped}`;
+  });
+  const selectedRecent = fit(recent, Math.floor(optionalBudget * 0.35));
+  const selectedCandidates = fit(candidates.map((item) => `[memory:${item.id}] ${item.type}（候选、低权重）：${item.content}`), Math.floor(optionalBudget * 0.15));
+  const selectedSources = fit(sourceLines, Math.floor(optionalBudget * 0.5));
   const selectedSourceIds = new Set(sources.filter((item) => selectedSources.some((value) => value.includes(`[source:${item.id}]`))).map((item) => item.id));
   const availableEvidence: EvidenceRef[] = [
     ...baselineEvidence.map(({ id, kind, label }) => ({ id, kind, label })),
