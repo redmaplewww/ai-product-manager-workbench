@@ -6,10 +6,14 @@ import type { Project } from "@pm-studio/core";
 
 const stages = { discovery: "探索", definition: "定义", planning: "规划", delivery: "交付" };
 export function Dashboard({ user, projects, pendingEvolution }: { user: { name: string; role: string }; projects: Project[]; pendingEvolution: number }) {
-  const router = useRouter(); const [showCreate, setShowCreate] = useState(false); const [busy, setBusy] = useState(false);
+  const router = useRouter(); const [showCreate, setShowCreate] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   async function create(form: FormData) {
-    setBusy(true); const response = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.get("name"), description: form.get("description") }) });
-    if (response.ok) { const { project } = await response.json(); router.push(`/projects/${project.id}`); } else setBusy(false);
+    setBusy(true); setError("");
+    const response = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.get("name"), description: form.get("description") }) });
+    if (response.ok) { const { project } = await response.json(); router.push(`/projects/${project.id}`); return; }
+    const detail = (await response.json().catch(() => ({}))).error;
+    setError(detail === "FORBIDDEN" ? "当前角色无权创建项目，需要管理员或产品编辑。" : detail || `创建失败（${response.status}），请重试`);
+    setBusy(false);
   }
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); location.href = "/login"; }
   return <div className="app-shell">
@@ -27,6 +31,6 @@ export function Dashboard({ user, projects, pendingEvolution }: { user: { name: 
         <div className="project-stat"><span>基线</span><strong>v{project.baselineVersion}</strong></div><div className="project-stat alert"><span>待审</span><strong>{project.pendingProposals}</strong></div><ArrowUpRight className="row-arrow" size={18}/>
       </button>)}</section>
     </main>
-    {showCreate && <div className="modal-backdrop" onMouseDown={() => setShowCreate(false)}><form className="modal" action={create} onMouseDown={(e) => e.stopPropagation()}><div><p className="eyebrow">新项目</p><h2>定义最初的产品意图</h2></div><label>项目名称<input name="name" required minLength={2} autoFocus /></label><label>一句话描述<textarea name="description" required minLength={4} rows={4}/></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setShowCreate(false)}>取消</button><button className="primary-button compact" disabled={busy}>{busy ? "创建中..." : "创建项目"}</button></div></form></div>}
+    {showCreate && <div className="modal-backdrop" onMouseDown={() => setShowCreate(false)}><form className="modal" action={create} onMouseDown={(e) => e.stopPropagation()}><div><p className="eyebrow">新项目</p><h2>定义最初的产品意图</h2></div>{error && <p className="form-error" role="alert">{error}</p>}<label>项目名称<input name="name" required minLength={2} autoFocus /></label><label>一句话描述<textarea name="description" required minLength={4} rows={4}/></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setShowCreate(false)}>取消</button><button className="primary-button compact" disabled={busy}>{busy ? "创建中..." : "创建项目"}</button></div></form></div>}
   </div>;
 }
