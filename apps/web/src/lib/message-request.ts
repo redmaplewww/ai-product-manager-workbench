@@ -1,8 +1,10 @@
+import { apiUrl } from "./app-path";
+
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export async function postProjectMessage(fetcher: Fetcher, projectId: string, content: string) {
   try {
-    const response = await fetcher(`/api/projects/${projectId}/messages`, {
+    const response = await fetcher(apiUrl(`/api/projects/${projectId}/messages`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content })

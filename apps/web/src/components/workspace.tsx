@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Bot, Brain, Check, CheckCircle2, ChevronRight, ClipboardList, FileText, Globe2, History, LoaderCircle, MessageSquareText, MessagesSquare, PanelRight, Send, ShieldAlert, Sparkles, Upload, X } from "lucide-react";
 import type { AgentRun, ArtifactVersion, ChangeProposal, MemoryItem, Message, ModelProfile, Project, Source } from "@pm-studio/core";
 import { postProjectMessage } from "@/lib/message-request";
+import { apiUrl } from "@/lib/app-path";
 import { proposalChangeKey } from "@/lib/proposal-view";
 import { questionForRun } from "@/lib/run-question";
 import { readPmProposal } from "@/lib/pm-output";
@@ -20,12 +21,12 @@ const navItems = [
 type View = typeof navItems[number]["key"];
 export function Workspace({ initial, user }: { initial: Snapshot; user: { name: string; role: string } }) {
   const router = useRouter(); const [data, setData] = useState(initial); const [tab, setTab] = useState<typeof tabs[number]>("基线"); const [view, setView] = useState<View>("chat"); const [mobilePane, setMobilePane] = useState<"chat"|"context">("chat"); const [sending, setSending] = useState(false); const [sourceOpen, setSourceOpen] = useState(false); const [sourceMode, setSourceMode] = useState<"web"|"file"|"document"|"conversation">("web"); const [sourceBusy, setSourceBusy] = useState(false); const [notice, setNotice] = useState(""); const [correctingMemoryId, setCorrectingMemoryId] = useState<string | null>(null); const [correction, setCorrection] = useState(""); const messageListRef = useRef<HTMLDivElement>(null);
-  async function refresh() { const response = await fetch(`/api/projects/${data.project.id}`, { cache: "no-store" }); if (response.ok) setData(await response.json()); }
+  async function refresh() { const response = await fetch(apiUrl(`/api/projects/${data.project.id}`), { cache: "no-store" }); if (response.ok) setData(await response.json()); }
   function scrollMessages() { const list = messageListRef.current; if (list) list.scrollTop = list.scrollHeight; }
   function openPane(target: "chat"|"context") { setView("chat"); setMobilePane(target); }
   async function send(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = event.currentTarget; const input = new FormData(form).get("message"); if (typeof input !== "string" || !input.trim() || sending) return; setNotice(""); setSending(true); const result = await postProjectMessage(fetch, data.project.id, input); if (!result.ok) { setNotice(result.error); setSending(false); return; } form.reset(); try { await refresh(); setTimeout(scrollMessages, 20); } catch { setNotice("消息已提交，但刷新失败，请刷新页面确认结果。"); } finally { setSending(false); } }
-  async function proposalAction(id: string, action: "accept"|"reject") { setNotice(""); const response = await fetch(`/api/proposals/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) }); if (!response.ok) setNotice((await response.json().catch(() => ({}))).error || "提案处理失败"); await refresh(); router.refresh(); }
-  async function memoryAction(id: string, action: "confirm"|"forget"|"correct", content?: string) { setNotice(""); const response = await fetch(`/api/memories/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, content }) }); if (!response.ok) setNotice((await response.json().catch(() => ({}))).error || "记忆处理失败"); else { setCorrectingMemoryId(null); setCorrection(""); } await refresh(); }
+  async function proposalAction(id: string, action: "accept"|"reject") { setNotice(""); const response = await fetch(apiUrl(`/api/proposals/${id}`), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) }); if (!response.ok) setNotice((await response.json().catch(() => ({}))).error || "提案处理失败"); await refresh(); router.refresh(); }
+  async function memoryAction(id: string, action: "confirm"|"forget"|"correct", content?: string) { setNotice(""); const response = await fetch(apiUrl(`/api/memories/${id}`), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, content }) }); if (!response.ok) setNotice((await response.json().catch(() => ({}))).error || "记忆处理失败"); else { setCorrectingMemoryId(null); setCorrection(""); } await refresh(); }
   async function addSource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -37,17 +38,17 @@ export function Workspace({ initial, user }: { initial: Snapshot; user: { name: 
       const file = fields.get("file");
       if (!(file instanceof File) || !file.size) { setNotice("请选择要上传的文件"); setSourceBusy(false); return; }
       payload.set("file", file);
-      response = await fetch(`/api/projects/${data.project.id}/sources`, { method: "POST", body: payload });
+      response = await fetch(apiUrl(`/api/projects/${data.project.id}/sources`), { method: "POST", body: payload });
     } else if (sourceMode === "document" || sourceMode === "conversation") {
-      response = await fetch(`/api/projects/${data.project.id}/sources`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: sourceMode, title: fields.get("title"), content: fields.get("content") }) });
+      response = await fetch(apiUrl(`/api/projects/${data.project.id}/sources`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: sourceMode, title: fields.get("title"), content: fields.get("content") }) });
     } else {
-      response = await fetch(`/api/projects/${data.project.id}/sources`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: fields.get("url"), title: fields.get("title") }) });
+      response = await fetch(apiUrl(`/api/projects/${data.project.id}/sources`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: fields.get("url"), title: fields.get("title") }) });
     }
     if (!response.ok) setNotice((await response.json().catch(() => ({}))).error || "来源处理失败");
     else { form.reset(); setSourceOpen(false); await refresh(); }
     setSourceBusy(false);
   }
-  async function deleteSource(id: string) { setNotice(""); const response = await fetch(`/api/projects/${data.project.id}/sources/${id}`, { method: "DELETE" }); if (!response.ok) setNotice((await response.json().catch(() => ({}))).error || "来源删除失败"); await refresh(); }
+  async function deleteSource(id: string) { setNotice(""); const response = await fetch(apiUrl(`/api/projects/${data.project.id}/sources/${id}`), { method: "DELETE" }); if (!response.ok) setNotice((await response.json().catch(() => ({}))).error || "来源删除失败"); await refresh(); }
   useEffect(() => { scrollMessages(); }, []);
   const canEdit = user.role !== "reviewer"; const demoMode = !data.models.some((model) => model.provider === "openai" && model.configured); const b = data.baseline.baseline;
   const pendingCount = data.proposals.filter((p) => p.status === "pending").length;

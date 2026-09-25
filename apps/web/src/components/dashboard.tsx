@@ -3,19 +3,20 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, BrainCircuit, CirclePlus, Clock3, FolderKanban, LogOut, Settings, ShieldCheck, Sparkles } from "lucide-react";
 import type { Project } from "@pm-studio/core";
+import { apiUrl, BASE_PATH } from "@/lib/app-path";
 
 const stages = { discovery: "探索", definition: "定义", planning: "规划", delivery: "交付" };
 export function Dashboard({ user, projects, pendingEvolution }: { user: { name: string; role: string }; projects: Project[]; pendingEvolution: number }) {
   const router = useRouter(); const [showCreate, setShowCreate] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   async function create(form: FormData) {
     setBusy(true); setError("");
-    const response = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.get("name"), description: form.get("description") }) });
+    const response = await fetch(apiUrl("/api/projects"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.get("name"), description: form.get("description") }) });
     if (response.ok) { const { project } = await response.json(); router.push(`/projects/${project.id}`); return; }
     const detail = (await response.json().catch(() => ({}))).error;
     setError(detail === "FORBIDDEN" ? "当前角色无权创建项目，需要管理员或产品编辑。" : detail || `创建失败（${response.status}），请重试`);
     setBusy(false);
   }
-  async function logout() { await fetch("/api/auth/logout", { method: "POST" }); location.href = "/login"; }
+  async function logout() { await fetch(apiUrl("/api/auth/logout"), { method: "POST" }); location.href = `${BASE_PATH}/login`; }
   return <div className="app-shell">
     <header className="topbar"><div className="brand"><div className="brand-mark small">PM</div><span>PM Studio</span></div><div className="top-actions"><span className="role-pill">{user.role}</span><span>{user.name}</span>{user.role === "admin" && <button className="icon-button" onClick={() => router.push("/admin")} title="系统管理"><Settings size={17}/></button>}<button className="icon-button" onClick={logout} title="退出登录"><LogOut size={17}/></button></div></header>
     <main className="dashboard">

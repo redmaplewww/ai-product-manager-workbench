@@ -3,17 +3,18 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Check, RotateCcw, ShieldCheck, X } from "lucide-react";
 import type { StudioState } from "@pm-studio/core";
+import { apiUrl } from "@/lib/app-path";
 
 type AdminData = Pick<StudioState, "users" | "models" | "evolutionProposals">;
 export function AdminConsole({ initial }: { initial: AdminData }) {
   const [data, setData] = useState(initial); const [notice, setNotice] = useState("");
   async function updateModel(modelId: string, enabled: boolean) {
-    setNotice(""); const response = await fetch("/api/admin/models", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: modelId, enabled }) });
+    setNotice(""); const response = await fetch(apiUrl("/api/admin/models"), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: modelId, enabled }) });
     const body = await response.json(); if (!response.ok) { setNotice(body.error || "模型配置更新失败"); return; }
     setData((current) => ({ ...current, models: current.models.map((model) => model.id === modelId ? body.model : model) }));
   }
   async function evolve(proposalId: string, action: "publish"|"reject"|"rollback") {
-    setNotice(""); const response = await fetch(`/api/admin/evolution/${proposalId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+    setNotice(""); const response = await fetch(apiUrl(`/api/admin/evolution/${proposalId}`), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
     const body = await response.json(); if (!response.ok) { setNotice(body.error || "自进化操作失败"); return; }
     setData((current) => ({ ...current, evolutionProposals: current.evolutionProposals.map((proposal) => proposal.id === proposalId ? body.proposal : proposal) }));
   }
